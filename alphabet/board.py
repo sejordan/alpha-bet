@@ -45,6 +45,23 @@ class Board:
     def get_board(self) -> List[List[Square]]:
         return self.board
     
+    def is_empty(self, coord: Coord) -> bool:
+        return not self.is_occupied(coord)
+    
+    def is_occupied(self, coord: Coord) -> bool:
+        return self.at(coord).tile is not None
+    
+    def is_in_bounds(self, coord: Coord) -> bool:
+        try:
+            self.at(coord)
+        except KeyError:
+            return False
+        
+        return True
+    
+    def at(self, coord: Coord) -> Square:
+        return self.board[coord.row][coord.col]
+    
     def place_tile(self, tile: Tile, coord: Coord):
         if tile.wildcard and tile.letter == Tile.WILDCARD:
             raise RuntimeError("Must specify wildcard letter before placing")

@@ -19,6 +19,20 @@ class Tile:
     
     def __repr__(self):
         return f"Tile(letter={self.letter}, value={self.value})"
+        
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Tile):
+            if self.wildcard and other.wildcard:
+                return True
+        
+            if self.letter == other.letter:
+                return True
+            
+        if isinstance(other, str):
+            if self.wildcard or self.letter == other:
+                return True
+        
+        return False
     
     def set_letter(self, letter: str):
         assert self.wildcard

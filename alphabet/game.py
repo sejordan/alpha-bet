@@ -1,22 +1,12 @@
 from typing import List, NamedTuple
+
 import pandas as pd
 
+from alphabet.player import Player
+from alphabet.move import Move
 from alphabet.board import Board, Tile
 from alphabet.variant import GameVariant, VariantFactory
 
-
-
-class Player:
-    def __init__(self, name: str):
-        self.name = name
-        self.tiles: List[Tile] = []
-        self.score = 0
-
-    def add_points(self, score: int):
-        self.score += score
-
-    def add_tiles(self, tiles: List[Tile]):
-        self.tiles += tiles
 
 class Players(NamedTuple):
     a: Player
@@ -24,6 +14,7 @@ class Players(NamedTuple):
 
 class Game:
     def __init__(self, dictionary: pd.Series, variant: GameVariant.Type = GameVariant.Type.CLASSIC):
+        self.max_rounds = 30
         self.round = 0
         self.turn = 0
         self.variant = VariantFactory.build(variant)
@@ -35,24 +26,65 @@ class Game:
             b=Player("Player B")
         )
 
-    def active_player(self):
+    @property
+    def is_over(self):
+        if self.round == 0:
+            return False
+        
+        if self.round > self.max_rounds:
+            return True
+        
+        if len(self.players.a.tiles) == 0 or len(self.players.b.tiles) == 0:
+            return True
+        
+        return False
+
+    @property
+    def active_player(self) -> Player:
         """
         Return the active player for this turn. Player A always goes first
         """
-        return self.players.a if self.turn % 2 == 0 else self.players.b
+        return self.players.a if self.turn % 2 == 1 else self.players.b
+    
+    @property
+    def winner(self) -> Player | None:
+        if self.is_over:
+            if self.players.a.score > self.players.b.score:
+                return self.players.a
+            elif self.players.b.score > self.players.a.score:
+                return self.players.b
+            # its a draw - return None
+
+        return None
+    
+    @property
+    def is_tie(self) -> bool:
+        return self.is_over and self.winner is None
 
     def start(self):
         # initialize the game, start each player with random selection of letters
 
         # player B draws first
         # players draw full starting set of tiles each
-        self.players.b.add_tiles(       
-            self.bag.grab_random_tiles(self.variant.starting_tiles)
-        )
+        self.players.b.draw(self.bag, n=self.variant.starting_tiles)
+        self.players.a.draw(self.bag, n=self.variant.starting_tiles)
 
-        self.players.a.add_tiles(       
-            self.bag.grab_random_tiles(self.variant.starting_tiles)
-        )
+    def next(self) -> bool:
+        if self.active_player == self.players.b:
+            self.round += 1
+            self.turn = 1
+        else:
+            self.turn += 1
+
+        return not self.is_over
+    
+    def play(self, move: Move):
+        # apply the move to the board
+        move.play(self.active_player, self.board)
+
+        # player tops off their tiles
+        tiles_to_draw = self.variant.starting_tiles - len(self.active_player.tiles)
+        self.active_player.draw(self.bag, n=tiles_to_draw)
 
     def score(self, tiles: List[Tile]) -> int:
         return self.score_word("".join([Tile.WILDCARD if tile.wildcard else tile.letter for tile in tiles]))
