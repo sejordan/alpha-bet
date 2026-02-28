@@ -11,10 +11,11 @@ class Coord(NamedTuple):
 
 
 class Square:
-    def __init__(self, coord: Coord, tile: Tile | None = None, modifier: Modifier = Modifier.NONE):
+    def __init__(self, coord: Coord, tile: Tile | None = None, modifier: Modifier = Modifier.NONE, special_display: str | None = None):
         self.coord = coord
         self.tile = tile
         self.modifier = modifier
+        self.special_display = special_display
 
     def set_modifier(self, modifier: Modifier) -> Self:
         self.modifier = modifier
@@ -34,7 +35,7 @@ class Board:
             self.board.append([])
             for col in range(variant.n):
                 self.board[row].append(
-                    Square(Coord(row=row, col=col))
+                    Square(Coord(row=row, col=col), special_display='*' if row == 7 and col == 7 else None)
                 )
         
         for row, modifiers in enumerate(variant.modifiers):

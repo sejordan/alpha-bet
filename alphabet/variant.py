@@ -20,6 +20,11 @@ class GameVariant(ABC):
     
     @property
     @abstractmethod
+    def starting_tiles(self) -> int:
+        raise NotImplementedError("Method not implemented!")
+    
+    @property
+    @abstractmethod
     def modifiers(self) -> List[List[Tuple[int, Modifier]]]:
         raise NotImplementedError("Method not implemented!")
 
@@ -34,6 +39,10 @@ class Classic(GameVariant):
     def name(self) -> GameVariant.Type:
         return GameVariant.Type.CLASSIC
 
+    @property
+    def starting_tiles(self) -> int:
+        return 7
+    
     @property
     def n(self) -> int:
         return 15

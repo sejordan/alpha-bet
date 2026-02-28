@@ -9,13 +9,14 @@ dictionary['word'] = dictionary['word'].str.lower()
 
 game = Game(dictionary['word'])
 
-print('zythem is worth', game.score_word('zythem'), 'points')
+#print('zythem is worth', game.score_word('zythem'), 'points')
 print("remaining tiles:", game.bag.total_tiles)
 
-handful = game.bag.grab_random_tiles(7)
-print("remaining tiles:", game.bag.total_tiles)
+#
 
-game.board.place_tile(handful[0], Coord(row=7, col=7))
+#game.board.place_tile(handful[0], Coord(row=7, col=7))
+
+game.start()
 
 display = GameDisplay()
 display.present(game)
