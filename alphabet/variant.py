@@ -1,9 +1,17 @@
 from typing import List, Tuple
 import enum
-from modifier import Modifier
+from alphabet.modifier import Modifier
+from alphabet.bag import LetterBag, Tile
+
 
 class GameVariant(enum.Enum):
     CLASSIC = enum.auto()
+
+    def create_bag(self) -> LetterBag:
+        match self:
+            case GameVariant.CLASSIC:
+                return classic_bag()
+        raise RuntimeError("Unsupported game variant")
 
     @enum.property
     def n(self) -> int:
@@ -13,14 +21,28 @@ class GameVariant(enum.Enum):
         raise RuntimeError("Unsupported game variant")
 
     @enum.property
-    def modifiers(self) -> List[Tuple[int, Modifier]]:
+    def modifiers(self) -> List[List[Tuple[int, Modifier]]]:
         match self:
             case GameVariant.CLASSIC:
                 return classic_modifiers()
         raise RuntimeError("Unsupported game variant")
 
 
-def classic_modifiers():
+def classic_bag() -> LetterBag:
+    letters = 'abcdefghijklmnopqrstuvwxyz?'
+    distribution = [9, 2, 2, 4, 12, 2, 3, 2, 9, 1, 1, 4, 2, 6, 8, 2, 1, 6, 4, 6, 4, 2, 2, 1, 2, 1, 2]
+    values = [1, 3, 3, 2, 1, 4, 2, 4, 1, 8, 5, 1, 3, 1, 0, 1, 10, 1, 1, 1, 1, 4, 4, 8, 4, 10, 0]
+
+    # build the bag
+    bag = LetterBag()
+    for i, letter in enumerate(list(letters)):
+        for _ in range(distribution[i]):
+            bag.add_tile(Tile(letter, values[i]))
+
+    return bag
+
+
+def classic_modifiers() -> List[List[Tuple[int, Modifier]]]:
     return [
         [ # Row=0
             ( 0, Modifier.TRIPLE_WORD),
