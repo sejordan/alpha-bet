@@ -1,6 +1,5 @@
 from enum import StrEnum
 
-
 class Scope(StrEnum):
     LETTER = 'L'
     WORD = 'W'

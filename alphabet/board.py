@@ -1,12 +1,17 @@
-from typing import Tuple, Self, List
+from typing import Self, List, NamedTuple
 
 from alphabet.variant import GameVariant
 from alphabet.modifier import Modifier
 from alphabet.bag import Tile
 
 
+class Coord(NamedTuple):
+    row: int
+    col: int
+
+
 class Square:
-    def __init__(self, coord: Tuple[int, int], tile: Tile | None = None, modifier: Modifier = Modifier.NONE):
+    def __init__(self, coord: Coord, tile: Tile | None = None, modifier: Modifier = Modifier.NONE):
         self.coord = coord
         self.tile = tile
         self.modifier = modifier
@@ -29,11 +34,18 @@ class Board:
             self.board.append([])
             for col in range(variant.n):
                 self.board[row].append(
-                    Square((row, col))
+                    Square(Coord(row=row, col=col))
                 )
         
         for row, modifiers in enumerate(variant.modifiers):
             for col, modifier in modifiers:
                 self.board[row][col].set_modifier(modifier)
 
-                
+    def get_board(self) -> List[List[Square]]:
+        return self.board
+    
+    def place_tile(self, tile: Tile, coord: Coord):
+        if tile.wildcard and tile.letter == Tile.WILDCARD:
+            raise RuntimeError("Must specify wildcard letter before placing")
+
+        self.board[coord.row][coord.col].set_tile(tile)
