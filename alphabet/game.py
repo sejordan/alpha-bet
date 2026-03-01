@@ -79,12 +79,32 @@ class Game:
         return not self.is_over
     
     def play(self, move: Move):
+        assert self.is_legal(move), "Illegal move!"
+
         # apply the move to the board
         move.play(self.active_player, self.board)
 
         # player tops off their tiles
         tiles_to_draw = self.variant.starting_tiles - len(self.active_player.tiles)
         self.active_player.draw(self.bag, n=tiles_to_draw)
+
+    # TODO: check if move is legal
+    def is_legal(self, move: Move) -> bool:
+        if self.turn == 1 and self.round == 1:
+            # must cross through center
+            crosses_center = False
+            center = (self.variant.n // 2)
+            for placement in move.placements:
+                if placement.location.position.row == center and placement.location.position.col == center:
+                    crosses_center = True
+
+            if not crosses_center:
+                return False
+
+
+
+
+        return True
 
     def score(self, tiles: List[Tile]) -> int:
         return self.score_word("".join([Tile.WILDCARD if tile.wildcard else tile.letter for tile in tiles]))

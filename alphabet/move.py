@@ -1,5 +1,4 @@
 from typing import List
-from enum import StrEnum
 
 from alphabet.player import Player
 from alphabet.board import Board, Tile, Square
@@ -10,17 +9,16 @@ class Placement:
         self.tile = tile
 
 class Move:
-    Direction = StrEnum('Direction', ['HORIZONTAL', 'VERTICAL'])
-
     def __init__(self, placements: List[Placement]):
         self.placements = placements
 
+    # TODO: this doesn't consider cross-spelling words or modifiers
     def score(self) -> int:
-        return 5
+        return sum([placement.tile.value for placement in self.placements])
     
     def play(self, player: Player, board: Board):
         for placement in self.placements:
             player.play_letter(placement.tile)
-            board.place_tile(placement.tile, coord=placement.location.coord)
+            board.place_tile(placement.tile, position=placement.location.position)
         player.add_points(self.score())
 

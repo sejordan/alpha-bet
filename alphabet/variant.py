@@ -90,7 +90,7 @@ class Classic(GameVariant):
                 ( 2, Modifier.DOUBLE_LETTER),
                 ( 6, Modifier.DOUBLE_LETTER),
                 ( 8, Modifier.DOUBLE_LETTER),
-                (13, Modifier.DOUBLE_LETTER),
+                (12, Modifier.DOUBLE_LETTER),
             ],
             [ # Row=7
                 ( 0, Modifier.TRIPLE_WORD),
@@ -103,7 +103,7 @@ class Classic(GameVariant):
                 ( 2, Modifier.DOUBLE_LETTER),
                 ( 6, Modifier.DOUBLE_LETTER),
                 ( 8, Modifier.DOUBLE_LETTER),
-                (13, Modifier.DOUBLE_LETTER),
+                (12, Modifier.DOUBLE_LETTER),
             ],
             [ # Row=9
                 ( 1, Modifier.TRIPLE_LETTER),
