@@ -50,7 +50,7 @@ class Board:
     def is_in_bounds(self, position: Position) -> bool:
         try:
             self.at(position)
-        except KeyError:
+        except IndexError:
             return False
         
         return True
