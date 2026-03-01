@@ -4,6 +4,7 @@ from alphabet.player import Player
 from alphabet.move import Move
 from alphabet.board import Board, Tile
 from alphabet.variant import GameVariant, VariantFactory
+from alphabet.wordsmith import Dictionary
 
 
 class Players(NamedTuple):
@@ -11,7 +12,7 @@ class Players(NamedTuple):
     b: Player
 
 class Game:
-    def __init__(self, dictionary: List[str], variant: GameVariant.Type = GameVariant.Type.CLASSIC):
+    def __init__(self, dictionary: Dictionary, variant: GameVariant.Type = GameVariant.Type.CLASSIC):
         self.max_rounds = 30
         self.round = 0
         self.turn = 0
@@ -121,4 +122,4 @@ class Game:
     
     # todo: this is super inefficient, find a better algorithm/data structure
     def valid_word(self, word: str) -> bool:
-        return word in self.dictionary
+        return self.dictionary.is_valid(word)

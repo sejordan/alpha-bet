@@ -1,5 +1,12 @@
 from typing import List
 
+class Dictionary:
+    def __init__(self, words: List[str]):
+        self.words = words
+
+    def is_valid(self, word: str) -> bool:
+        return word in self.words
+
 def word_fits_template(word: str, template: List[None | str]) -> bool:
     # if they aren't the same length, then its a definite no...
     if len(word) != len(template):
@@ -15,7 +22,7 @@ def word_fits_template(word: str, template: List[None | str]) -> bool:
     return True
 
 
-def fill_template(dictionary: List[str], template: List[None | str]) -> List[str]:
+def fill_template(dictionary: Dictionary, template: List[None | str]) -> List[str]:
     """
     Returns a list of words that complete the provided template
     """
@@ -23,7 +30,7 @@ def fill_template(dictionary: List[str], template: List[None | str]) -> List[str
 
     # TODO:
     # this algorithm is super brute-force, come up with something faster
-    for word in dictionary:
+    for word in dictionary.words:
         if word_fits_template(word, template):
             words.append(word)
 
