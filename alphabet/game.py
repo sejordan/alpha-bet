@@ -100,10 +100,13 @@ class Game:
 
             if not crosses_center:
                 return False
+        else:
+            # TODO:
+            # must touch the graph of tiles already on the board
+            pass
 
-
-
-
+        # TODO:
+        # every word spelled must be legal
         return True
 
     def score(self, tiles: List[Tile]) -> int:
