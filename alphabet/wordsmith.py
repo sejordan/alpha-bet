@@ -1,5 +1,4 @@
 from typing import List
-import pandas as pd
 
 def word_fits_template(word: str, template: List[None | str]) -> bool:
     # if they aren't the same length, then its a definite no...
@@ -16,7 +15,7 @@ def word_fits_template(word: str, template: List[None | str]) -> bool:
     return True
 
 
-def fill_template(dictionary: pd.Series, template: List[None | str]) -> List[str]:
+def fill_template(dictionary: List[str], template: List[None | str]) -> List[str]:
     """
     Returns a list of words that complete the provided template
     """

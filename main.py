@@ -1,20 +1,21 @@
-import pandas as pd
+from typing import List
 
 from alphabet.game import Game
 from alphabet.display import GameDisplay
 from alphabet.engine import GameEngine
 
+dictionary: List[str] = []
+with open('/usr/share/dict/words', 'r') as fh:
+    for line in fh:
+        dictionary.append(line.strip())
 
-dictionary = pd.read_csv('/usr/share/dict/words', names=['word'])
-dictionary['word'] = dictionary['word'].str.lower()
-
-game = Game(dictionary['word'])
+game = Game(dictionary)
 game.start()
 
 game_engine = GameEngine()
 
-#while game.next():
-if game.next():
+while game.next():
+#if game.next():
     print(f"Round={game.round}; Current Turn={game.active_player}")
     GameDisplay.present(game)
 
