@@ -6,9 +6,9 @@
 - [x] Add reproducible benchmark script for win rate, score margin, and game length.
 
 ## 2. State and Action Representation
-- [ ] Define canonical state encoder (board premiums, occupied letters, rack, bag estimate, turn context).
-- [ ] Define action encoder for candidate moves (placements, score, leave, cross-word impact).
-- [ ] Add feature versioning so saved models are tied to encoder schema.
+- [x] Define canonical state encoder (board premiums, occupied letters, rack, bag estimate, turn context).
+- [x] Define action encoder for candidate moves (placements, score, leave, cross-word impact).
+- [x] Add feature versioning so saved models are tied to encoder schema.
 
 ## 3. Data Collection Pipeline
 - [ ] Build self-play rollout runner that logs `(state, action, reward, next_state, done)` transitions.

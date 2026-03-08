@@ -5,9 +5,9 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
-from alphabet.board import Tile
+from alphabet.encoding import ActionEncoder, ENCODER_SCHEMA_VERSION, StateEncoder
 from alphabet.game import Game, Player
 from alphabet.move import ExchangeMove, Move, PassMove
 from alphabet.strategy import ActionStrategy
@@ -23,25 +23,47 @@ FEATURE_KEYS = (
     "is_bingo",
 )
 
-VOWELS = {"a", "e", "i", "o", "u"}
+MODEL_SCHEMA_VERSION = "rl_linear_v1"
 
 
 @dataclass
 class LinearPolicyModel:
     weights: Dict[str, float]
     bias: float = 0.0
+    feature_schema_version: str = ENCODER_SCHEMA_VERSION
+    model_schema_version: str = MODEL_SCHEMA_VERSION
 
     @classmethod
     def default(cls) -> "LinearPolicyModel":
-        return cls(weights={key: 0.0 for key in FEATURE_KEYS}, bias=0.0)
+        return cls(
+            weights={key: 0.0 for key in FEATURE_KEYS},
+            bias=0.0,
+            feature_schema_version=ENCODER_SCHEMA_VERSION,
+            model_schema_version=MODEL_SCHEMA_VERSION,
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> "LinearPolicyModel":
         payload = json.loads(Path(path).read_text())
+        feature_schema_version = payload.get("feature_schema_version", "")
+        model_schema_version = payload.get("model_schema_version", "")
+        if feature_schema_version != ENCODER_SCHEMA_VERSION:
+            raise ValueError(
+                f"Model feature schema '{feature_schema_version}' != expected '{ENCODER_SCHEMA_VERSION}'"
+            )
+        if model_schema_version != MODEL_SCHEMA_VERSION:
+            raise ValueError(
+                f"Model schema '{model_schema_version}' != expected '{MODEL_SCHEMA_VERSION}'"
+            )
         raw_weights = payload.get("weights", {})
         weights = {key: float(raw_weights.get(key, 0.0)) for key in FEATURE_KEYS}
         bias = float(payload.get("bias", 0.0))
-        return cls(weights=weights, bias=bias)
+        return cls(
+            weights=weights,
+            bias=bias,
+            feature_schema_version=feature_schema_version,
+            model_schema_version=model_schema_version,
+        )
 
     def save(self, path: str | Path) -> None:
         output_path = Path(path)
@@ -49,6 +71,8 @@ class LinearPolicyModel:
         payload = {
             "weights": {key: float(self.weights.get(key, 0.0)) for key in FEATURE_KEYS},
             "bias": float(self.bias),
+            "feature_schema_version": self.feature_schema_version,
+            "model_schema_version": self.model_schema_version,
         }
         output_path.write_text(json.dumps(payload, indent=2, sort_keys=True))
 
@@ -76,6 +100,8 @@ class RLLinearStrategy(ActionStrategy):
         self.model = model if model is not None else LinearPolicyModel.default()
         self.epsilon = epsilon
         self.rng = rng if rng is not None else random.Random()
+        self.state_encoder = StateEncoder()
+        self.action_encoder = ActionEncoder()
 
     def select_action(
         self,
@@ -116,47 +142,18 @@ class RLLinearStrategy(ActionStrategy):
         return best_move
 
     def move_features(self, game: Game, player: Player, move: Move) -> Dict[str, float]:
-        immediate_score = float(game.score_move(move))
-        tiles_used = float(len(move.placements))
-
-        remaining_tiles = _rack_after_move(player.tiles, move)
-        leave_vowels = 0.0
-        leave_consonants = 0.0
-        for tile in remaining_tiles:
-            if tile.wildcard:
-                continue
-            if tile.letter in VOWELS:
-                leave_vowels += 1.0
-            else:
-                leave_consonants += 1.0
-
-        leave_balance = -abs(leave_vowels - leave_consonants)
+        self.state_encoder.encode(game, player)
+        encoded = self.action_encoder.encode(game, player, move)
 
         return {
-            "immediate_score": immediate_score,
-            "tiles_used": tiles_used,
-            "rack_leave": float(len(remaining_tiles)),
-            "leave_vowels": leave_vowels,
-            "leave_consonants": leave_consonants,
-            "leave_balance": leave_balance,
-            "is_bingo": 1.0 if len(move.placements) == game.variant.starting_tiles else 0.0,
+            "immediate_score": float(encoded.immediate_score),
+            "tiles_used": float(encoded.tiles_used),
+            "rack_leave": float(encoded.leave_size),
+            "leave_vowels": float(encoded.leave_vowels),
+            "leave_consonants": float(encoded.leave_consonants),
+            "leave_balance": float(-encoded.leave_balance),
+            "is_bingo": float(encoded.is_bingo),
         }
-
-
-def _rack_after_move(rack: Iterable[Tile], move: Move) -> List[Tile]:
-    remaining = list(rack)
-    for placement in move.placements:
-        target_tile = placement.tile
-        for index, tile in enumerate(remaining):
-            if tile is target_tile:
-                remaining.pop(index)
-                break
-
-            # Fallback for copied tile objects in generated moves.
-            if tile.wildcard == target_tile.wildcard and tile.letter == target_tile.letter:
-                remaining.pop(index)
-                break
-    return remaining
 
 
 def margin_reward(game: Game) -> float:

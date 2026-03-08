@@ -1,9 +1,12 @@
+import json
 from pathlib import Path
+
+import pytest
 
 from alphabet.engine import GameEngine
 from alphabet.game import Game
 from alphabet.move import ExchangeMove, Move, PassMove
-from alphabet.rl import LinearPolicyModel, RLLinearStrategy
+from alphabet.rl import ENCODER_SCHEMA_VERSION, MODEL_SCHEMA_VERSION, LinearPolicyModel, RLLinearStrategy
 from alphabet.wordsmith import Dictionary
 
 
@@ -67,3 +70,26 @@ def test_linear_policy_model_save_load_roundtrip(tmp_path: Path) -> None:
     assert restored.bias == 0.1
     assert restored.weights["immediate_score"] == 0.75
     assert restored.weights["leave_balance"] == -0.2
+
+
+def test_linear_policy_model_rejects_schema_mismatch(tmp_path: Path) -> None:
+    output = tmp_path / "bad_model.json"
+    payload = {
+        "weights": {},
+        "bias": 0.0,
+        "feature_schema_version": "wrong_schema",
+        "model_schema_version": MODEL_SCHEMA_VERSION,
+    }
+    output.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="feature schema"):
+        LinearPolicyModel.load(output)
+
+    payload = {
+        "weights": {},
+        "bias": 0.0,
+        "feature_schema_version": ENCODER_SCHEMA_VERSION,
+        "model_schema_version": "wrong_model_schema",
+    }
+    output.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="Model schema"):
+        LinearPolicyModel.load(output)
