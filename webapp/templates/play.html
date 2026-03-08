@@ -15,7 +15,16 @@
         <label for="ai_strategy">AI Strategy</label>
         <select id="ai_strategy" name="ai_strategy">
           <option value="greedy" {% if ai_strategy|default('greedy') == 'greedy' %}selected{% endif %}>Greedy</option>
+          <option value="random" {% if ai_strategy|default('greedy') == 'random' %}selected{% endif %}>Random</option>
+          <option value="exchange_pass_safe" {% if ai_strategy|default('greedy') == 'exchange_pass_safe' %}selected{% endif %}>Exchange/Pass Safe</option>
           <option value="rl" {% if ai_strategy|default('greedy') == 'rl' %}selected{% endif %}>RL Model</option>
+        </select>
+        <label for="ai_model_choice">Saved Model</label>
+        <select id="ai_model_choice" name="ai_model_choice">
+          <option value="">(none)</option>
+          {% for path in model_paths %}
+          <option value="{{ path }}" {% if ai_model_path|default('') == path %}selected{% endif %}>{{ path }}</option>
+          {% endfor %}
         </select>
         <label for="ai_model_path">Model Path</label>
         <input
@@ -44,6 +53,21 @@
       <p>Round {{ game.round }} | Turn {{ game.turn }} | Active: {{ game.active_player.name }}</p>
       <p>Score — You: {{ game.players.a.score }} | AI: {{ game.players.b.score }}</p>
       <p>AI Config — strategy={{ ai_strategy }}, epsilon={{ ai_epsilon }}, model={{ ai_model_path or "(default)" }}</p>
+
+      {% if ai_reasoning and game.active_player.name == "Player B" %}
+      <h2>AI Top Candidates</h2>
+      <table class="suggestions">
+        <tr><th>Word</th><th>Score</th><th>Model Score</th><th>Direction</th></tr>
+        {% for item in ai_reasoning %}
+        <tr>
+          <td>{{ item.word or "-" }}</td>
+          <td>{{ item.score }}</td>
+          <td>{{ item.model_score }}</td>
+          <td>{{ item.direction }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
 
       <h2>Your Rack</h2>
       <div id="rack" class="rack">
@@ -120,6 +144,22 @@
         </tr>
         {% endfor %}
       </table>
+
+      {% if game.is_over and human_analysis %}
+      <h2>Post-Game Human Move Analysis</h2>
+      <table class="suggestions">
+        <tr><th>Round</th><th>Turn</th><th>Chosen</th><th>Top</th><th>Gap</th></tr>
+        {% for row in human_analysis %}
+        <tr>
+          <td>{{ row.round }}</td>
+          <td>{{ row.turn }}</td>
+          <td>{{ row.chosen_score }}</td>
+          <td>{{ row.top_score }}</td>
+          <td>{{ row.gap }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
       {% endif %}
     </main>
 

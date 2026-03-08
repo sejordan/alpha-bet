@@ -6,8 +6,7 @@ from typing import List
 from alphabet.game import Game
 from alphabet.display import GameDisplay
 from alphabet.engine import GameEngine
-from alphabet.rl import LinearPolicyModel, RLLinearStrategy
-from alphabet.strategy import GreedyImmediateScoreStrategy
+from alphabet.strategy_factory import build_strategy
 from alphabet.wordsmith import Dictionary
 from alphabet.move import Move, ExchangeMove, PassMove
 import numpy as np
@@ -20,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark", action="store_true", help="Print timing and throughput summary.")
     parser.add_argument(
         "--strategy",
-        choices=["greedy", "rl"],
+        choices=["greedy", "random", "exchange_pass_safe", "rl", "rl_linear"],
         default="greedy",
         help="Move-selection strategy for both players.",
     )
@@ -39,15 +38,16 @@ def parse_args() -> argparse.Namespace:
 
 
 def _build_engine(args: argparse.Namespace) -> GameEngine:
-    if args.strategy == "rl":
-        if args.model_path:
-            model = LinearPolicyModel.load(args.model_path)
-        else:
-            model = LinearPolicyModel.default()
-        strategy = RLLinearStrategy(model=model, epsilon=args.epsilon, rng=random.Random(args.seed))
-        return GameEngine(strategy=strategy)
-
-    return GameEngine(strategy=GreedyImmediateScoreStrategy())
+    result = build_strategy(
+        args.strategy,
+        model_path=args.model_path,
+        epsilon=args.epsilon,
+        seed=args.seed,
+        strict_model_load=False,
+    )
+    if result.warning:
+        print(f"[warning] {result.warning}")
+    return GameEngine(strategy=result.strategy)
 
 
 def main():

@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import random
 from dataclasses import asdict
 
 from alphabet.engine import GameEngine
-from alphabet.rl import LinearPolicyModel, RLLinearStrategy
 from alphabet.simulation import SimulationConfig, load_dictionary, run_game
-from alphabet.strategy import (
-    ExchangePassSafeStrategy,
-    GreedyImmediateScoreStrategy,
-    RandomLegalStrategy,
-)
+from alphabet.strategy_factory import build_strategy
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,22 +33,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_engine(name: str, model_path: str, epsilon: float, seed: int) -> GameEngine:
-    if name == "greedy":
-        return GameEngine(strategy=GreedyImmediateScoreStrategy())
-
-    if name == "random":
-        return GameEngine(strategy=RandomLegalStrategy(rng=random.Random(seed)))
-
-    if name == "exchange_pass_safe":
-        return GameEngine(strategy=ExchangePassSafeStrategy())
-
-    if name == "rl":
-        model = LinearPolicyModel.default()
-        if model_path:
-            model = LinearPolicyModel.load(model_path)
-        return GameEngine(strategy=RLLinearStrategy(model=model, epsilon=epsilon, rng=random.Random(seed)))
-
-    raise ValueError(f"Unsupported strategy: {name}")
+    result = build_strategy(name, model_path=model_path, epsilon=epsilon, seed=seed, strict_model_load=False)
+    if result.warning:
+        print(f"[warning] {result.warning}")
+    return GameEngine(strategy=result.strategy)
 
 
 def main() -> None:

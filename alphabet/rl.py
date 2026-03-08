@@ -83,11 +83,19 @@ class LinearPolicyModel:
         return total
 
     def update(self, features: Dict[str, float], target: float, alpha: float) -> None:
+        if not math.isfinite(target) or not math.isfinite(alpha):
+            return
         prediction = self.score(features)
         error = target - prediction
+        if not math.isfinite(error):
+            return
         self.bias += alpha * error
         for key in FEATURE_KEYS:
             self.weights[key] = self.weights.get(key, 0.0) + alpha * error * features.get(key, 0.0)
+            if not math.isfinite(self.weights[key]):
+                self.weights[key] = 0.0
+        if not math.isfinite(self.bias):
+            self.bias = 0.0
 
 
 class RLLinearStrategy(ActionStrategy):

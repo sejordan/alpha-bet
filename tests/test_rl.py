@@ -7,6 +7,8 @@ from alphabet.engine import GameEngine
 from alphabet.game import Game
 from alphabet.move import ExchangeMove, Move, PassMove
 from alphabet.rl import ENCODER_SCHEMA_VERSION, MODEL_SCHEMA_VERSION, LinearPolicyModel, RLLinearStrategy
+from alphabet.simulation import SimulationConfig, load_dictionary, run_game
+from alphabet.strategy import GreedyImmediateScoreStrategy
 from alphabet.wordsmith import Dictionary
 
 
@@ -93,3 +95,48 @@ def test_linear_policy_model_rejects_schema_mismatch(tmp_path: Path) -> None:
     output.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="Model schema"):
         LinearPolicyModel.load(output)
+
+
+def test_checkpoint_load_produces_identical_action_choice(tmp_path: Path) -> None:
+    game = _game(["at", "cat", "act", "tac"])
+    game.round = 1
+    game.turn = 1
+    _set_rack(game, ["c", "a", "t"])
+    engine = GameEngine()
+    candidates = engine.all_valid_moves_codex(game, game.active_player)
+
+    model = LinearPolicyModel.default()
+    model.weights["immediate_score"] = 1.23
+    model.weights["leave_balance"] = -0.31
+    model.bias = 0.17
+
+    path = tmp_path / "stable.json"
+    model.save(path)
+
+    strategy_a = RLLinearStrategy(model=LinearPolicyModel.load(path), epsilon=0.0)
+    strategy_b = RLLinearStrategy(model=LinearPolicyModel.load(path), epsilon=0.0)
+
+    action_a = strategy_a.select_action(engine=engine, game=game, player=game.active_player, candidates=candidates)
+    action_b = strategy_b.select_action(engine=engine, game=game, player=game.active_player, candidates=candidates)
+
+    assert isinstance(action_a, Move)
+    assert isinstance(action_b, Move)
+    sig_a = tuple(engine._move_signature_codex(action_a))  # pylint: disable=protected-access
+    sig_b = tuple(engine._move_signature_codex(action_b))  # pylint: disable=protected-access
+    assert sig_a == sig_b
+
+
+def test_loaded_rl_model_can_complete_full_game(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.json"
+    LinearPolicyModel.default().save(model_path)
+
+    dictionary = load_dictionary("dictionary/classic.txt")
+    summary = run_game(
+        engine_a=GameEngine(strategy=RLLinearStrategy(model=LinearPolicyModel.load(model_path), epsilon=0.0)),
+        engine_b=GameEngine(strategy=GreedyImmediateScoreStrategy()),
+        config=SimulationConfig(max_rounds=8),
+        dictionary=dictionary,
+        seed=123,
+    )
+
+    assert summary.turns > 0

@@ -1,7 +1,6 @@
 import copy
 import json
 import os
-import random
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
@@ -18,8 +17,7 @@ from alphabet.engine import GameEngine
 from alphabet.game import Game
 from alphabet.move import ExchangeMove, Move, PassMove, Placement
 from alphabet.position import Axis, Position
-from alphabet.rl import LinearPolicyModel, RLLinearStrategy
-from alphabet.strategy import GreedyImmediateScoreStrategy
+from alphabet.strategy_factory import build_strategy
 from alphabet.wordsmith import Dictionary
 
 
@@ -46,6 +44,7 @@ def _default_ai_epsilon() -> float:
 DEFAULT_AI_STRATEGY = os.environ.get("ALPHABET_AI_STRATEGY", "greedy").strip().lower()
 DEFAULT_AI_MODEL = os.environ.get("ALPHABET_AI_MODEL", "").strip()
 DEFAULT_AI_EPSILON = _default_ai_epsilon()
+DEFAULT_AI_TOPK = int(os.environ.get("ALPHABET_AI_TOPK", "5"))
 
 
 def _build_engine(
@@ -53,15 +52,15 @@ def _build_engine(
     model_path: str = "",
     epsilon: float = 0.0,
     seed: int | None = None,
-) -> GameEngine:
-    normalized = strategy_name.strip().lower()
-    if normalized == "rl":
-        model = LinearPolicyModel.default()
-        if model_path:
-            model = LinearPolicyModel.load(model_path)
-        strategy = RLLinearStrategy(model=model, epsilon=epsilon, rng=random.Random(seed))
-        return GameEngine(strategy=strategy)
-    return GameEngine(strategy=GreedyImmediateScoreStrategy())
+) -> tuple[GameEngine, str]:
+    result = build_strategy(
+        strategy_name,
+        model_path=model_path,
+        epsilon=epsilon,
+        seed=seed,
+        strict_model_load=False,
+    )
+    return GameEngine(strategy=result.strategy), result.warning
 
 
 UTILITY_ENGINE = GameEngine()
@@ -78,6 +77,8 @@ class PlayState:
     ai_strategy: str
     ai_model_path: str
     ai_epsilon: float
+    ai_reasoning: List[Dict[str, Any]] = field(default_factory=list)
+    human_analysis: List[Dict[str, Any]] = field(default_factory=list)
     message: str = ""
 
 
@@ -390,6 +391,35 @@ def _sorted_suggestions(game: Game, limit: int = 30, engine: GameEngine | None =
     move_engine = engine if engine is not None else UTILITY_ENGINE
     candidates = move_engine.all_valid_moves_codex(game, game.active_player)
     return sorted(candidates, key=lambda move: game.score_move(move), reverse=True)[:limit]
+
+
+def _available_model_paths() -> List[str]:
+    model_dir = os.path.join(REPO_ROOT, "models")
+    if not os.path.isdir(model_dir):
+        return []
+    out: List[str] = []
+    for value in sorted(os.listdir(model_dir)):
+        if value.endswith(".json"):
+            out.append(os.path.join("models", value))
+    return out
+
+
+def _ai_reasoning(game: Game, engine: GameEngine, top_k: int = DEFAULT_AI_TOPK) -> List[Dict[str, Any]]:
+    candidates = engine.all_valid_moves_codex(game, game.active_player)
+    scored: List[tuple[float, Move]] = []
+    for candidate in candidates:
+        try:
+            model_score = float(engine.strategy.model.score(engine.strategy.move_features(game, game.active_player, candidate)))  # type: ignore[attr-defined]
+        except Exception:
+            model_score = float(game.score_move(candidate))
+        scored.append((model_score, candidate))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    out: List[Dict[str, Any]] = []
+    for score, move in scored[:top_k]:
+        summary = _move_summary(game, move)
+        summary["model_score"] = round(score, 4)
+        out.append(summary)
+    return out
 
 
 def _build_move_from_word(
@@ -886,7 +916,12 @@ def play_new() -> ResponseReturnValue:
         np.random.seed(int(seed))
 
     ai_strategy = request.form.get("ai_strategy", DEFAULT_AI_STRATEGY).strip().lower()
-    ai_model_path = request.form.get("ai_model_path", DEFAULT_AI_MODEL).strip()
+    ai_model_choice = request.form.get("ai_model_choice", "").strip()
+    ai_model_path = request.form.get("ai_model_path", "").strip()
+    if ai_model_choice:
+        ai_model_path = ai_model_choice
+    if not ai_model_path:
+        ai_model_path = DEFAULT_AI_MODEL
     ai_epsilon_raw = request.form.get("ai_epsilon", str(DEFAULT_AI_EPSILON)).strip()
     try:
         ai_epsilon = float(ai_epsilon_raw)
@@ -894,7 +929,7 @@ def play_new() -> ResponseReturnValue:
         ai_epsilon = DEFAULT_AI_EPSILON
 
     game_seed = int(seed) if seed else None
-    ai_engine = _build_engine(
+    ai_engine, warning = _build_engine(
         strategy_name=ai_strategy,
         model_path=ai_model_path,
         epsilon=ai_epsilon,
@@ -905,6 +940,7 @@ def play_new() -> ResponseReturnValue:
     game.start()
     game.next()
     suggestions = _sorted_suggestions(game, engine=ai_engine)
+    ai_reasoning = _ai_reasoning(game, ai_engine)
     PLAY_STATE = PlayState(
         game=game,
         suggestions=suggestions,
@@ -912,7 +948,9 @@ def play_new() -> ResponseReturnValue:
         ai_strategy=ai_strategy,
         ai_model_path=ai_model_path,
         ai_epsilon=ai_epsilon,
-        message="",
+        ai_reasoning=ai_reasoning,
+        human_analysis=[],
+        message=warning,
     )
     return redirect(url_for("play"))
 
@@ -920,7 +958,7 @@ def play_new() -> ResponseReturnValue:
 @app.route("/play", methods=["GET"])
 def play() -> ResponseReturnValue:
     if PLAY_STATE is None:
-        return render_template("play.html", ready=False)
+        return render_template("play.html", ready=False, model_paths=_available_model_paths())
 
     game = PLAY_STATE.game
     suggestion_summaries = [_move_summary(game, move) for move in PLAY_STATE.suggestions]
@@ -946,6 +984,9 @@ def play() -> ResponseReturnValue:
         ai_strategy=PLAY_STATE.ai_strategy,
         ai_model_path=PLAY_STATE.ai_model_path,
         ai_epsilon=PLAY_STATE.ai_epsilon,
+        ai_reasoning=PLAY_STATE.ai_reasoning,
+        human_analysis=PLAY_STATE.human_analysis,
+        model_paths=_available_model_paths(),
     )
 
 
@@ -970,14 +1011,32 @@ def play_action() -> ResponseReturnValue:
         if isinstance(action, Move) and not game.is_legal(action):
             raise ValueError(_explain_illegal_move(game, action))
 
+        if isinstance(action, Move):
+            top_moves = _sorted_suggestions(game, limit=5, engine=PLAY_STATE.engine)
+            chosen_score = game.score_move(action)
+            top_score = game.score_move(top_moves[0]) if top_moves else chosen_score
+            PLAY_STATE.human_analysis.append(
+                {
+                    "round": game.round,
+                    "turn": game.turn,
+                    "chosen_score": chosen_score,
+                    "top_score": top_score,
+                    "gap": top_score - chosen_score,
+                    "chosen": _move_summary(game, action),
+                }
+            )
+
         game.apply_action(action)
         if game.next():
+            PLAY_STATE.ai_reasoning = _ai_reasoning(game, PLAY_STATE.engine)
             ai_action = PLAY_STATE.engine.select_action(game, game.active_player, verbose=False)
             game.apply_action(ai_action)
         if game.next():
             PLAY_STATE.suggestions = _sorted_suggestions(game, engine=PLAY_STATE.engine)
+            PLAY_STATE.ai_reasoning = _ai_reasoning(game, PLAY_STATE.engine)
         else:
             PLAY_STATE.suggestions = []
+            PLAY_STATE.ai_reasoning = []
         PLAY_STATE.message = ""
     except Exception as exc:  # pragma: no cover
         PLAY_STATE.message = str(exc)
