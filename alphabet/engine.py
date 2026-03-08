@@ -1,28 +1,226 @@
 from typing import List, Dict
 
-from alphabet.move import Move, Placement
+from alphabet.move import Move, Placement, ExchangeMove, PassMove
 from alphabet.game import Game, Tile, Player
 from alphabet.position import Position, Axis
 from alphabet import wordsmith
 
 
 class GameEngine:
-         
-    def all_valid_moves(self, game: Game, player: Player) -> List[Move]:
-        # opening move has slightly different rules, handled separately
+
+    def all_valid_moves_codex(self, game: Game, player: Player) -> List[Move]:
+        """
+        Alternative move generator optimized to reduce repeated board scans and
+        repeated player-rack cloning.
+        """
+        # Opening move logic is already bounded and comparatively cheap.
         if game.round == 1 and game.turn == 1:
             return self.all_valid_opening_moves(game, player)
 
-        candidates: List[Move] = []
+        anchors = self._anchors_codex(game)
+        if len(anchors) == 0:
+            return []
 
+        rack_tiles, wildcard_tiles = self._index_player_tiles_codex(player)
+        candidates: List[Move] = []
+        horizontal_starts = self._candidate_starts_codex(game, player, anchors, Axis.HORIZONTAL)
+        vertical_starts = self._candidate_starts_codex(game, player, anchors, Axis.VERTICAL)
+
+        for start in horizontal_starts:
+            candidates += self._all_valid_moves_at_position_codex(
+                game=game,
+                player=player,
+                start=start,
+                axis=Axis.HORIZONTAL,
+                rack_tiles=rack_tiles,
+                wildcard_tiles=wildcard_tiles,
+            )
+
+        for start in vertical_starts:
+            candidates += self._all_valid_moves_at_position_codex(
+                game=game,
+                player=player,
+                start=start,
+                axis=Axis.VERTICAL,
+                rack_tiles=rack_tiles,
+                wildcard_tiles=wildcard_tiles,
+            )
+
+        deduped: List[Move] = []
+        seen: set[tuple] = set()
+        for move in candidates:
+            sig = self._move_signature_codex(move)
+            if sig in seen:
+                continue
+            seen.add(sig)
+            deduped.append(move)
+
+        return deduped
+
+    def _anchors_codex(self, game: Game) -> List[Position]:
+        anchors: List[Position] = []
         for row in range(game.variant.n):
             for col in range(game.variant.n):
-                #print(f"Look for valid moves at position: Row={row} Col={col}")
-                candidates += self.all_valid_moves_at_position(game, player, Position(row, col), Axis.HORIZONTAL)
-                candidates += self.all_valid_moves_at_position(game, player, Position(row, col), Axis.VERTICAL)
+                position = Position(row, col)
+                if game.board.at(position).tile is not None:
+                    continue
+
+                connected = False
+                for neighbor in position.neighbors():
+                    if game.board.is_in_bounds(neighbor) and game.board.at(neighbor).tile is not None:
+                        connected = True
+                        break
+
+                if connected:
+                    anchors.append(position)
+
+        return anchors
+
+    def _candidate_starts_codex(
+        self,
+        game: Game,
+        player: Player,
+        anchors: List[Position],
+        axis: Axis,
+    ) -> List[Position]:
+        rack_size = len(player.tiles)
+        if rack_size == 0:
+            return []
+
+        selected: Dict[tuple[int, int], Position] = {}
+
+        for anchor in anchors:
+            cursor = anchor
+            empty_slots = 1  # anchor itself is empty and requires one placed tile
+
+            while game.board.is_in_bounds(cursor) and empty_slots <= rack_size:
+                # canonical full-word start: preceding square cannot be occupied
+                previous = cursor.prev(axis)
+                if (not game.board.is_in_bounds(previous)) or game.board.at(previous).tile is None:
+                    selected[(cursor.row, cursor.col)] = Position(cursor.row, cursor.col)
+
+                cursor = cursor.prev(axis)
+                if not game.board.is_in_bounds(cursor):
+                    break
+
+                if game.board.at(cursor).tile is None:
+                    empty_slots += 1
+
+        return list(selected.values())
+
+    def _index_player_tiles_codex(self, player: Player) -> tuple[Dict[str, List[Tile]], List[Tile]]:
+        rack_tiles: Dict[str, List[Tile]] = {}
+        wildcard_tiles: List[Tile] = []
+        for tile in player.tiles:
+            if tile.wildcard:
+                wildcard_tiles.append(tile)
+            else:
+                if tile.letter not in rack_tiles:
+                    rack_tiles[tile.letter] = []
+                rack_tiles[tile.letter].append(tile)
+        return rack_tiles, wildcard_tiles
+
+    def _move_signature_codex(self, move: Move) -> tuple:
+        normalized = sorted([
+            (
+                placement.location.position.row,
+                placement.location.position.col,
+                placement.tile.letter,
+                placement.tile.wildcard,
+            )
+            for placement in move.placements
+        ])
+        return tuple(normalized)
+
+    def _all_valid_moves_at_position_codex(
+        self,
+        game: Game,
+        player: Player,
+        start: Position,
+        axis: Axis,
+        rack_tiles: Dict[str, List[Tile]],
+        wildcard_tiles: List[Tile],
+    ) -> List[Move]:
+        min_word_len = self.find_minimum_valid_word_length_at_position(game, player, start, axis)
+        if min_word_len == 0:
+            return []
+
+        max_word_len = self.find_maximum_valid_word_length_at_position(game, player, start, axis)
+        if max_word_len < min_word_len:
+            return []
+
+        candidates: List[Move] = []
+        template: List[None | str] = []
+        path: List[Position] = []
+        cursor = start
+
+        for word_len in range(1, max_word_len + 1):
+            if not game.board.is_in_bounds(cursor):
+                break
+
+            square = game.board.at(cursor)
+            path.append(cursor)
+            template.append(square.tile.letter if square.tile is not None else None)
+
+            if word_len >= min_word_len:
+                # Words cannot terminate immediately before an occupied square.
+                end_next = cursor.next(axis)
+                if (not game.board.is_in_bounds(end_next)) or game.board.at(end_next).tile is None:
+                    candidate_words = wordsmith.fill_template(game.dictionary, template)
+                    for word in candidate_words:
+                        move = self._build_move_codex(
+                            game=game,
+                            path=path,
+                            template=template,
+                            rack_tiles=rack_tiles,
+                            wildcard_tiles=wildcard_tiles,
+                            word=word,
+                        )
+                        if move is not None and game.is_legal(move):
+                            candidates.append(move)
+
+            cursor = cursor.next(axis)
 
         return candidates
-    
+
+    def _build_move_codex(
+        self,
+        game: Game,
+        path: List[Position],
+        template: List[None | str],
+        rack_tiles: Dict[str, List[Tile]],
+        wildcard_tiles: List[Tile],
+        word: str,
+    ) -> Move | None:
+        placements: List[Placement] = []
+        consumed_by_letter: Dict[str, int] = {}
+        consumed_wildcards = 0
+
+        for index, required_letter in enumerate(template):
+            # Board already contains this tile; no placement required.
+            if required_letter is not None:
+                continue
+
+            letter = word[index]
+            used_letter_count = consumed_by_letter.get(letter, 0)
+            available_tiles = rack_tiles.get(letter, [])
+
+            if used_letter_count < len(available_tiles):
+                source_tile = available_tiles[used_letter_count]
+                consumed_by_letter[letter] = used_letter_count + 1
+                tile = Tile(source_tile.letter, source_tile.value)
+            elif consumed_wildcards < len(wildcard_tiles):
+                source_tile = wildcard_tiles[consumed_wildcards]
+                consumed_wildcards += 1
+                tile = Tile(source_tile.letter, source_tile.value)
+                tile.set_letter(letter)
+            else:
+                return None
+
+            placements.append(Placement(game.board.at(path[index]), tile))
+
+        return Move(placements)
+         
     def all_valid_opening_moves(self, game: Game, player: Player) -> List[Move]:
         candidates: List[Move] = []
 
@@ -63,20 +261,6 @@ class GameEngine:
                     moves.append(move)
 
         return moves
-    
-    def all_valid_moves_at_position(self, game: Game, player: Player, position: Position, axis: Axis) -> List[Move]:
-        candidates: List[Move] = []       
-
-        for word_len in range(1, game.variant.n + 1):
-            #print("Checking for valid words of length: ", word_len)
-            # in order to be able to spell a word here of length `word_len` it can't run into another tile
-            end = position.move(axis, word_len)
-            if game.board.is_in_bounds(end) and game.board.at(end).tile is not None:
-                continue
-
-            candidates += self.all_valid_moves_at_position_by_word_length(game, player, position, axis, word_len)
-
-        return candidates
     
     def find_minimum_valid_word_length_at_position(self, game: Game, player: Player, position: Position, axis: Axis) -> int:
         """
@@ -157,53 +341,6 @@ class GameEngine:
         # so we take the smaller of the two numbers
         return min(theoretical_max, practical_max)
     
-    def all_valid_moves_at_position_by_word_length(self, game: Game, player: Player, position: Position, axis: Axis, word_length:  int) -> List[Move]:
-        """
-        Returns a list of valid Moves resulting in a word of the provided length,
-        where the first letter is at the given position
-        """
-        # find minimum word length that works here
-        min_word_len = self.find_minimum_valid_word_length_at_position(game, player, position, axis)
-
-        # if min_word_len is longer than word_length, then we can't play any words
-        # of word_length at this position
-        # if min_word_len is 0, then no words can be played here
-        if min_word_len == 0 or min_word_len > word_length:
-            return []
-
-        # now, find maximum word length that works here
-        max_word_len = self.find_maximum_valid_word_length_at_position(game, player, position, axis)
-
-        # if max_word_len is shorter than word_length then there's no
-        # valid words that we can play of length word_length at this position
-        if max_word_len < word_length:
-            return []
-
-        # build the template-
-        # a list of blanks and filled slots
-        # ie: [None, "s", None] equates to "_s_" where the blanks on either
-        #     side of the s can be filled to make a word of length 3, but the "s" is fixed.
-        cursor = position
-        template: List[None | str] = [None] * word_length
-        for i in range(word_length):
-            # build a fresh template
-            tile_under_cursor = game.board.at(cursor).tile
-            if tile_under_cursor is not None:
-                # there's already a tile at this spot, so fill in the blank
-                template[i] = tile_under_cursor.letter
-
-        candidate_words = wordsmith.fill_template(game.dictionary, template)
-        selected: List[Move] = []
-        # convert the words into moves
-        for word in candidate_words:
-            move = self.build_move(game, player, position, axis, word)
-            
-            # filter out illegal moves
-            if move is not None and game.is_legal(move):
-                selected.append(move)
-
-        return selected
-
     def build_move(self, game: Game, player: Player, position: Position, axis: Axis, word: str) -> Move | None:
         placements: List[Placement] = []
 
@@ -239,14 +376,59 @@ class GameEngine:
 
         return Move(placements)
     
-    def select_move(self, game: Game, player: Player) -> Move:
-        candidates = self.all_valid_moves(game, player)
+    def select_action(self, game: Game, player: Player, verbose: bool = True) -> Move | ExchangeMove | PassMove:
+        candidates = self.all_valid_moves_codex(game, player)
 
-        print("Found", len(candidates), 'possible moves')
+        if verbose:
+            print("Found", len(candidates), 'possible moves')
 
-        # for now, just select a random play
-        import random
-        return random.choice(candidates)
+        if len(candidates) > 0:
+            # Strategy: maximize immediate score, then prefer using more tiles,
+            # then stable tie-breaker by placement coordinates.
+            best_score = None
+            best_move = None
+            best_signature = None
+
+            for candidate in candidates:
+                score = game.score_move(candidate)
+                signature = self._move_signature_codex(candidate)
+                # deterministic tie-break by signature ordering
+                tie_key = (score, len(candidate.placements), tuple(signature))
+
+                if best_move is None:
+                    best_move = candidate
+                    best_score = score
+                    best_signature = tie_key
+                    continue
+
+                assert best_score is not None and best_signature is not None
+                if score > best_score:
+                    best_move = candidate
+                    best_score = score
+                    best_signature = tie_key
+                elif score == best_score:
+                    if len(candidate.placements) > len(best_move.placements):
+                        best_move = candidate
+                        best_signature = tie_key
+                    elif len(candidate.placements) == len(best_move.placements) and tie_key < best_signature:
+                        best_move = candidate
+                        best_signature = tie_key
+
+            assert best_move is not None
+            return best_move
+
+        # If no moves are available, exchange as many tiles as we can draw.
+        exchange_count = min(len(player.tiles), game.bag.total_tiles)
+        if exchange_count > 0:
+            return ExchangeMove(player.tiles[:exchange_count])
+
+        return PassMove()
+
+    def select_move(self, game: Game, player: Player) -> Move | None:
+        action = self.select_action(game, player)
+        if isinstance(action, Move):
+            return action
+        return None
 
         # # for now, play all tiles at center, only move we know
         # current = Position(row=7, col=7)

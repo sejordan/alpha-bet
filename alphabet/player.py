@@ -14,7 +14,7 @@ class Player:
         return self.name
 
     def __repr__(self):
-        return f"Player(name=self.name)"
+        return f"Player(name={self.name})"
 
     def add_points(self, score: int):
         self.score += score

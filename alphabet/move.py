@@ -11,14 +11,17 @@ class Placement:
 class Move:
     def __init__(self, placements: List[Placement]):
         self.placements = placements
-
-    # TODO: this doesn't consider cross-spelling words or modifiers
-    def score(self) -> int:
-        return sum([placement.tile.value for placement in self.placements])
     
     def play(self, player: Player, board: Board):
         for placement in self.placements:
             player.play_letter(placement.tile)
             board.place_tile(placement.tile, position=placement.location.position)
-        player.add_points(self.score())
 
+
+class PassMove:
+    pass
+
+
+class ExchangeMove:
+    def __init__(self, tiles: List[Tile]):
+        self.tiles = tiles
