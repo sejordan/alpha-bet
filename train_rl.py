@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Dict, List
 
 from alphabet.engine import GameEngine
-from alphabet.game import Game
 from alphabet.move import Move
 from alphabet.rl import FEATURE_KEYS, RLLinearStrategy, LinearPolicyModel, margin_reward
+from alphabet.simulation import SimulationConfig, build_game, load_dictionary, set_seed
 from alphabet.wordsmith import Dictionary
 
 
@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
         default="dictionary/classic.txt",
         help="Path to dictionary word list.",
     )
+    parser.add_argument("--max-rounds", type=int, default=30, help="Round cap for training games.")
     parser.add_argument("--model-in", type=str, default=None, help="Optional checkpoint path to resume from.")
     parser.add_argument(
         "--model-out",
@@ -35,18 +36,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_dictionary(path: str) -> Dictionary:
-    words: List[str] = []
-    with open(path, "r") as fh:
-        for line in fh:
-            value = line.strip()
-            if value:
-                words.append(value)
-    return Dictionary(words)
-
-
-def train_episode(dictionary: Dictionary, strategy: RLLinearStrategy, alpha: float) -> Dict[str, float]:
-    game = Game(dictionary)
+def train_episode(
+    config: SimulationConfig,
+    dictionary: Dictionary,
+    strategy: RLLinearStrategy,
+    alpha: float,
+    seed: int,
+) -> Dict[str, float]:
+    set_seed(seed)
+    game = build_game(config=config, dictionary=dictionary)
     game.start()
     engine = GameEngine(strategy=strategy)
 
@@ -90,9 +88,10 @@ def main() -> None:
     args = parse_args()
 
     if args.seed is not None:
-        random.seed(args.seed)
+        set_seed(args.seed)
 
-    dictionary = load_dictionary(args.dictionary)
+    config = SimulationConfig(dictionary_path=args.dictionary, max_rounds=args.max_rounds)
+    dictionary = load_dictionary(config.dictionary_path)
 
     if args.model_in is not None and Path(args.model_in).exists():
         model = LinearPolicyModel.load(args.model_in)
@@ -105,7 +104,8 @@ def main() -> None:
     margin_total = 0.0
 
     for episode in range(1, args.episodes + 1):
-        stats = train_episode(dictionary, strategy, alpha=args.alpha)
+        episode_seed = (args.seed or 0) + episode
+        stats = train_episode(config, dictionary, strategy, alpha=args.alpha, seed=episode_seed)
         reward_total += stats["reward_a"]
         margin_total += stats["score_a"] - stats["score_b"]
 

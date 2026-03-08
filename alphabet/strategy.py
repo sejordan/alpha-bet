@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import random
 from typing import TYPE_CHECKING, List
 
 from alphabet.move import ExchangeMove, Move, PassMove
@@ -57,4 +58,52 @@ class GreedyImmediateScoreStrategy(ActionStrategy):
         if exchange_count > 0:
             return ExchangeMove(player.tiles[:exchange_count])
 
+        return PassMove()
+
+
+class RandomLegalStrategy(ActionStrategy):
+    """
+    Baseline strategy:
+    1. choose a random legal word move
+    2. if no words, exchange a random subset of rack tiles
+    3. if exchange impossible, pass
+    """
+
+    def __init__(self, rng: random.Random | None = None) -> None:
+        self.rng = rng if rng is not None else random.Random()
+
+    def select_action(
+        self,
+        engine: "GameEngine",
+        game: "Game",
+        player: "Player",
+        candidates: List[Move],
+    ) -> Move | ExchangeMove | PassMove:
+        if candidates:
+            return self.rng.choice(candidates)
+
+        exchange_count = min(len(player.tiles), game.bag.total_tiles)
+        if exchange_count > 0:
+            take = self.rng.randint(1, exchange_count)
+            return ExchangeMove(self.rng.sample(player.tiles, take))
+
+        return PassMove()
+
+
+class ExchangePassSafeStrategy(ActionStrategy):
+    """
+    Floor baseline that never attempts board plays.
+    It only exchanges when possible, otherwise passes.
+    """
+
+    def select_action(
+        self,
+        engine: "GameEngine",
+        game: "Game",
+        player: "Player",
+        candidates: List[Move],
+    ) -> Move | ExchangeMove | PassMove:
+        exchange_count = min(len(player.tiles), game.bag.total_tiles)
+        if exchange_count > 0:
+            return ExchangeMove(player.tiles[:exchange_count])
         return PassMove()

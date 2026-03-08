@@ -1,6 +1,6 @@
 PYTHON ?= .venv/bin/python
 
-.PHONY: install-dev hooks test lint typecheck ci
+.PHONY: install-dev hooks test lint typecheck ci benchmark
 
 install-dev:
 	$(PYTHON) -m pip install -r requirements.txt -r requirements-dev.txt
@@ -18,3 +18,6 @@ typecheck:
 	$(PYTHON) -m mypy alphabet main.py train_rl.py webapp/app.py
 
 ci: lint typecheck test
+
+benchmark:
+	$(PYTHON) benchmark_strategies.py

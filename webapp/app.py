@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import random
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
@@ -17,6 +18,8 @@ from alphabet.engine import GameEngine
 from alphabet.game import Game
 from alphabet.move import ExchangeMove, Move, PassMove, Placement
 from alphabet.position import Axis, Position
+from alphabet.rl import LinearPolicyModel, RLLinearStrategy
+from alphabet.strategy import GreedyImmediateScoreStrategy
 from alphabet.wordsmith import Dictionary
 
 
@@ -30,7 +33,38 @@ def _load_dictionary() -> Dictionary:
 
 
 DICTIONARY = _load_dictionary()
-ENGINE = GameEngine()
+
+
+def _default_ai_epsilon() -> float:
+    value = os.environ.get("ALPHABET_AI_EPSILON", "0.0").strip()
+    try:
+        return float(value)
+    except ValueError:
+        return 0.0
+
+
+DEFAULT_AI_STRATEGY = os.environ.get("ALPHABET_AI_STRATEGY", "greedy").strip().lower()
+DEFAULT_AI_MODEL = os.environ.get("ALPHABET_AI_MODEL", "").strip()
+DEFAULT_AI_EPSILON = _default_ai_epsilon()
+
+
+def _build_engine(
+    strategy_name: str,
+    model_path: str = "",
+    epsilon: float = 0.0,
+    seed: int | None = None,
+) -> GameEngine:
+    normalized = strategy_name.strip().lower()
+    if normalized == "rl":
+        model = LinearPolicyModel.default()
+        if model_path:
+            model = LinearPolicyModel.load(model_path)
+        strategy = RLLinearStrategy(model=model, epsilon=epsilon, rng=random.Random(seed))
+        return GameEngine(strategy=strategy)
+    return GameEngine(strategy=GreedyImmediateScoreStrategy())
+
+
+UTILITY_ENGINE = GameEngine()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("ALPHABET_SECRET_KEY", "dev-secret-key")
@@ -40,6 +74,10 @@ app.secret_key = os.environ.get("ALPHABET_SECRET_KEY", "dev-secret-key")
 class PlayState:
     game: Game
     suggestions: List[Move]
+    engine: GameEngine
+    ai_strategy: str
+    ai_model_path: str
+    ai_epsilon: float
     message: str = ""
 
 
@@ -348,8 +386,9 @@ def _build_manual_move(game: Game, payload: str) -> Move:
     return Move(placements)
 
 
-def _sorted_suggestions(game: Game, limit: int = 30) -> List[Move]:
-    candidates = ENGINE.all_valid_moves_codex(game, game.active_player)
+def _sorted_suggestions(game: Game, limit: int = 30, engine: GameEngine | None = None) -> List[Move]:
+    move_engine = engine if engine is not None else UTILITY_ENGINE
+    candidates = move_engine.all_valid_moves_codex(game, game.active_player)
     return sorted(candidates, key=lambda move: game.score_move(move), reverse=True)[:limit]
 
 
@@ -373,7 +412,7 @@ def _build_move_from_word(
         return None, "Start position is out of bounds."
 
     if actor == "me":
-        move = ENGINE.build_move(game, game.active_player, pos, axis, word)
+        move = UTILITY_ENGINE.build_move(game, game.active_player, pos, axis, word)
         if move is None:
             return None, "Your rack cannot build that word at the selected position."
         return move, ""
@@ -846,11 +885,35 @@ def play_new() -> ResponseReturnValue:
     if seed:
         np.random.seed(int(seed))
 
+    ai_strategy = request.form.get("ai_strategy", DEFAULT_AI_STRATEGY).strip().lower()
+    ai_model_path = request.form.get("ai_model_path", DEFAULT_AI_MODEL).strip()
+    ai_epsilon_raw = request.form.get("ai_epsilon", str(DEFAULT_AI_EPSILON)).strip()
+    try:
+        ai_epsilon = float(ai_epsilon_raw)
+    except ValueError:
+        ai_epsilon = DEFAULT_AI_EPSILON
+
+    game_seed = int(seed) if seed else None
+    ai_engine = _build_engine(
+        strategy_name=ai_strategy,
+        model_path=ai_model_path,
+        epsilon=ai_epsilon,
+        seed=game_seed,
+    )
+
     game = Game(DICTIONARY)
     game.start()
     game.next()
-    suggestions = _sorted_suggestions(game)
-    PLAY_STATE = PlayState(game=game, suggestions=suggestions, message="")
+    suggestions = _sorted_suggestions(game, engine=ai_engine)
+    PLAY_STATE = PlayState(
+        game=game,
+        suggestions=suggestions,
+        engine=ai_engine,
+        ai_strategy=ai_strategy,
+        ai_model_path=ai_model_path,
+        ai_epsilon=ai_epsilon,
+        message="",
+    )
     return redirect(url_for("play"))
 
 
@@ -880,6 +943,9 @@ def play() -> ResponseReturnValue:
         suggestions=suggestion_summaries,
         payloads=payloads,
         message=PLAY_STATE.message,
+        ai_strategy=PLAY_STATE.ai_strategy,
+        ai_model_path=PLAY_STATE.ai_model_path,
+        ai_epsilon=PLAY_STATE.ai_epsilon,
     )
 
 
@@ -906,10 +972,10 @@ def play_action() -> ResponseReturnValue:
 
         game.apply_action(action)
         if game.next():
-            ai_action = ENGINE.select_action(game, game.active_player, verbose=False)
+            ai_action = PLAY_STATE.engine.select_action(game, game.active_player, verbose=False)
             game.apply_action(ai_action)
         if game.next():
-            PLAY_STATE.suggestions = _sorted_suggestions(game)
+            PLAY_STATE.suggestions = _sorted_suggestions(game, engine=PLAY_STATE.engine)
         else:
             PLAY_STATE.suggestions = []
         PLAY_STATE.message = ""

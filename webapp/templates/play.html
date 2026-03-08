@@ -12,6 +12,24 @@
       <form class="inline" method="post" action="{{ url_for('play_new') }}">
         <label for="seed">Seed</label>
         <input id="seed" name="seed" placeholder="optional" />
+        <label for="ai_strategy">AI Strategy</label>
+        <select id="ai_strategy" name="ai_strategy">
+          <option value="greedy" {% if ai_strategy|default('greedy') == 'greedy' %}selected{% endif %}>Greedy</option>
+          <option value="rl" {% if ai_strategy|default('greedy') == 'rl' %}selected{% endif %}>RL Model</option>
+        </select>
+        <label for="ai_model_path">Model Path</label>
+        <input
+          id="ai_model_path"
+          name="ai_model_path"
+          placeholder="optional for RL"
+          value="{{ ai_model_path|default('') }}"
+        />
+        <label for="ai_epsilon">Epsilon</label>
+        <input
+          id="ai_epsilon"
+          name="ai_epsilon"
+          value="{{ ai_epsilon|default(0.0) }}"
+        />
         <button type="submit" class="btn">Start New Game</button>
         <a class="btn ghost" href="{{ url_for('index') }}">Back</a>
       </form>
@@ -25,6 +43,7 @@
 
       <p>Round {{ game.round }} | Turn {{ game.turn }} | Active: {{ game.active_player.name }}</p>
       <p>Score — You: {{ game.players.a.score }} | AI: {{ game.players.b.score }}</p>
+      <p>AI Config — strategy={{ ai_strategy }}, epsilon={{ ai_epsilon }}, model={{ ai_model_path or "(default)" }}</p>
 
       <h2>Your Rack</h2>
       <div id="rack" class="rack">
