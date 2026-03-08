@@ -8,14 +8,15 @@ from typing import Any, Dict, List
 
 from alphabet.engine import GameEngine
 from alphabet.move import Move
-from alphabet.simulation import SimulationConfig, build_game, load_dictionary, set_seed
+from alphabet.sim_runner import run_episode
+from alphabet.simulation import SimulationConfig, load_dictionary
 from alphabet.strategy_factory import build_strategy
 
 
 BASELINES = ["greedy", "random", "exchange_pass_safe"]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate RL checkpoints versus baselines.")
     parser.add_argument("--checkpoint", type=str, default="models/rl_linear.json")
     parser.add_argument("--checkpoint-glob", type=str, default="")
@@ -27,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gate-margin-vs-greedy", type=float, default=-25.0)
     parser.add_argument("--metrics-out", type=str, default="runs/eval/latest_metrics.json")
     parser.add_argument("--report-out", type=str, default="reports/rl_eval_latest.md")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def resolve_checkpoints(args: argparse.Namespace) -> List[str]:
@@ -46,43 +47,31 @@ def run_one_game(
     rl_model_path: str,
     baseline: str,
 ) -> Dict[str, Any]:
-    set_seed(seed)
     rl_result = build_strategy("rl_linear", model_path=rl_model_path, epsilon=0.0, seed=seed)
     base_result = build_strategy(baseline, epsilon=0.0, seed=seed + 11)
     engine_a = GameEngine(strategy=rl_result.strategy)
     engine_b = GameEngine(strategy=base_result.strategy)
 
-    game = build_game(config=config, dictionary=dictionary)
-    game.start()
-    if not game.next():
-        return {"winner": "tie", "margin": 0, "turns": 0, "regret": 0.0}
-
-    turns = 0
     regret_total = 0.0
     rl_moves = 0
 
-    while True:
-        turns += 1
-        if game.active_player == game.players.a:
-            candidates = engine_a.all_valid_moves_codex(game, game.active_player)
-            action = engine_a.strategy.select_action(
-                engine=engine_a,
-                game=game,
-                player=game.active_player,
-                candidates=candidates,
-            )
+    def before_action(game, player, move_engine, candidates, action) -> None:
+        nonlocal regret_total, rl_moves
+        if player == game.players.a and isinstance(action, Move) and candidates:
+            chosen = game.score_move(action)
+            best = max(game.score_move(candidate) for candidate in candidates)
+            regret_total += float(best - chosen)
+            rl_moves += 1
 
-            if isinstance(action, Move) and candidates:
-                chosen = game.score_move(action)
-                best = max(game.score_move(candidate) for candidate in candidates)
-                regret_total += float(best - chosen)
-                rl_moves += 1
-        else:
-            action = engine_b.select_action(game, game.active_player, verbose=False)
-
-        game.apply_action(action)
-        if not game.next():
-            break
+    episode = run_episode(
+        config=config,
+        dictionary=dictionary,
+        engine_a=engine_a,
+        engine_b=engine_b,
+        seed=seed,
+        before_action=before_action,
+    )
+    game = episode.game
 
     winner = "tie"
     if game.winner == game.players.a:
@@ -93,7 +82,7 @@ def run_one_game(
     return {
         "winner": winner,
         "margin": game.players.a.score - game.players.b.score,
-        "turns": turns,
+        "turns": episode.turns,
         "regret": regret_total / max(1, rl_moves),
     }
 
@@ -172,8 +161,8 @@ def write_report(path: str, payload: Dict[str, Any], gates: Dict[str, Any]) -> N
     report_path.write_text("\n".join(lines))
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
     checkpoints = resolve_checkpoints(args)
 
     dictionary = load_dictionary(args.dictionary)

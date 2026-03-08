@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+from typing import List
 
 from alphabet.engine import GameEngine
 from alphabet.simulation import SimulationConfig, load_dictionary, run_game
 from alphabet.strategy_factory import build_strategy
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark strategy matchups with reproducible seeds.")
     parser.add_argument("--games", type=int, default=50, help="Number of games.")
     parser.add_argument("--seed", type=int, default=1, help="Base seed for reproducible game seeds.")
@@ -29,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a-epsilon", type=float, default=0.0)
     parser.add_argument("--b-epsilon", type=float, default=0.0)
     parser.add_argument("--print-games", action="store_true", help="Print per-game summaries.")
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def build_engine(name: str, model_path: str, epsilon: float, seed: int) -> GameEngine:
@@ -39,8 +40,8 @@ def build_engine(name: str, model_path: str, epsilon: float, seed: int) -> GameE
     return GameEngine(strategy=result.strategy)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
 
     config = SimulationConfig(
         dictionary_path=args.dictionary,

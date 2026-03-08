@@ -7,6 +7,7 @@ from alphabet.variant import GameVariant, VariantFactory
 from alphabet.wordsmith import Dictionary
 from alphabet.position import Position, Axis
 from alphabet.modifier import Modifier
+from alphabet.analysis import MoveAnalysis, WordScore
 
 
 class Players(NamedTuple):
@@ -158,10 +159,7 @@ class Game:
         if len(placements) == 0:
             return 0
 
-        placement_by_pos = {
-            (placement.location.position.row, placement.location.position.col): placement
-            for placement in placements
-        }
+        placement_by_pos = self._placement_map_from_move(move)
         axis = self._infer_move_axis(placements)
         if axis is None:
             return 0
@@ -177,6 +175,72 @@ class Game:
             total += 50
 
         return total
+
+    def analyze_move(self, move: Move) -> MoveAnalysis:
+        placement_by_pos = self._placement_map_from_move(move)
+        axis = self._infer_move_axis(move.placements)
+        direction = axis.value if axis is not None else Axis.HORIZONTAL.value
+        words_to_score = self._words_formed_positions(placement_by_pos, axis) if axis is not None else []
+
+        formed_words: List[WordScore] = []
+        for positions in words_to_score:
+            text = "".join([self._tile_letter_at(position, placement_by_pos) or "" for position in positions])
+            score = self._score_word_positions(positions, placement_by_pos)
+            formed_words.append(WordScore(text=text, score=score))
+
+        word = formed_words[0].text if formed_words else ""
+        placements = sorted(
+            [
+                (
+                    placement.location.position.row,
+                    placement.location.position.col,
+                    placement.tile.letter,
+                    placement.tile.wildcard,
+                )
+                for placement in move.placements
+            ]
+        )
+        return MoveAnalysis(
+            total_score=self.score_move(move),
+            direction=direction,
+            word=word,
+            placements=placements,
+            formed_words=formed_words,
+        )
+
+    def explain_illegal_move(self, move: Move) -> str:
+        placements = move.placements
+        if len(placements) == 0:
+            return "Move has no placements."
+
+        placement_by_pos: Dict[tuple[int, int], Placement] = {}
+        for placement in placements:
+            position = placement.location.position
+            key = (position.row, position.col)
+
+            if not self.board.is_in_bounds(position):
+                return "Move places a tile out of bounds."
+            if self.board.at(position).tile is not None:
+                return "Move places onto an occupied square."
+            if key in placement_by_pos:
+                return "Move has duplicate placement coordinates."
+            placement_by_pos[key] = placement
+
+        axis = self._infer_move_axis(placements)
+        if axis is None:
+            return "Move must be in one row or one column."
+        if not self._is_contiguous_on_axis(placement_by_pos, axis):
+            return "Move is not contiguous."
+        is_opening = self.round == 1 and self.turn == 1
+        if is_opening and not self._move_crosses_center(placement_by_pos):
+            return "Opening move must cross the center."
+        if (not is_opening) and (not self._touches_existing_graph(placement_by_pos)):
+            return "Move must touch existing tiles."
+        if not self._all_words_valid(placement_by_pos, axis):
+            return "Move creates at least one invalid word."
+        if not self._active_player_has_tiles_for_move(placements):
+            return "Move uses tiles that active player does not have."
+        return "Move is illegal."
 
     def is_legal(self, move: Move) -> bool:
         placements = move.placements
@@ -430,6 +494,12 @@ class Game:
             return None
 
         return tile.letter
+
+    def _placement_map_from_move(self, move: Move) -> Dict[tuple[int, int], Placement]:
+        return {
+            (placement.location.position.row, placement.location.position.col): placement
+            for placement in move.placements
+        }
 
     def _both_players_blocked(self) -> bool:
         return (not self._player_has_legal_word_move(self.players.a)) and (

@@ -8,7 +8,8 @@ from typing import Any, Dict, Iterable, Sequence
 from alphabet.encoding import ActionEncoder, StateEncoder
 from alphabet.engine import GameEngine
 from alphabet.move import Move
-from alphabet.simulation import SimulationConfig, build_game, set_seed
+from alphabet.sim_runner import run_episode
+from alphabet.simulation import SimulationConfig
 from alphabet.wordsmith import Dictionary
 
 
@@ -62,27 +63,12 @@ def run_rollouts(
     with output_path.open("w") as fh:
         for episode in range(episodes):
             seed = _episode_seed(seed_start, episode, seed_stride)
-            set_seed(seed)
-
-            game = build_game(config=config, dictionary=dictionary)
-            game.start()
-            if not game.next():
-                continue
-
             step = 0
-            while True:
-                player = game.active_player
-                current_engine = engine_a if player == game.players.a else engine_b
+            pending: Dict[str, Any] = {}
 
-                candidates = current_engine.all_valid_moves_codex(game, player)
+            def before_action(game, player, current_engine, candidates, action) -> None:
+                nonlocal pending
                 state = state_encoder.encode(game, player).to_dict()
-                action = current_engine.strategy.select_action(
-                    engine=current_engine,
-                    game=game,
-                    player=player,
-                    candidates=candidates,
-                )
-
                 reward = 0.0
                 action_payload: Dict[str, Any]
                 if isinstance(action, Move):
@@ -94,9 +80,15 @@ def run_rollouts(
                         "type": action.__class__.__name__,
                     }
 
-                game.apply_action(action)
+                pending = {
+                    "player": "a" if player == game.players.a else "b",
+                    "state": state,
+                    "action_payload": action_payload,
+                    "reward": reward,
+                }
 
-                done = not game.next()
+            def after_action(game, player, current_engine, candidates, action, done) -> None:
+                nonlocal step, transitions, pending
                 if not done:
                     next_player = game.active_player
                     next_state = state_encoder.encode(game, next_player).to_dict()
@@ -111,18 +103,25 @@ def run_rollouts(
                 record = Transition(
                     episode=episode,
                     step=step,
-                    player="a" if player == game.players.a else "b",
-                    state=state,
-                    action=action_payload,
-                    reward=reward,
+                    player=pending["player"],
+                    state=pending["state"],
+                    action=pending["action_payload"],
+                    reward=pending["reward"],
                     next_state=next_state,
                     done=done,
                 )
                 fh.write(json.dumps(record.__dict__) + "\n")
                 transitions += 1
 
-                if done:
-                    break
+            run_episode(
+                config=config,
+                dictionary=dictionary,
+                engine_a=engine_a,
+                engine_b=engine_b,
+                seed=seed,
+                before_action=before_action,
+                after_action=after_action,
+            )
 
     metadata = {
         "episodes": episodes,

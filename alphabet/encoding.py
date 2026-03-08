@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from alphabet.game import Game, Player
 from alphabet.move import Move, Placement
-from alphabet.position import Axis, Position
+from alphabet.position import Position
 
 ENCODER_SCHEMA_VERSION = "state_action_v1"
 
@@ -148,23 +148,13 @@ class ActionEncoder:
             ]
         )
 
-        axis = game._infer_move_axis(move.placements)  # pylint: disable=protected-access
-        axis_name = axis.value if axis is not None else Axis.HORIZONTAL.value
-
-        placement_by_pos = {
-            (placement.location.position.row, placement.location.position.col): placement
-            for placement in move.placements
-        }
-
-        words = game._words_formed_positions(placement_by_pos, axis) if axis is not None else []  # pylint: disable=protected-access
+        analysis = game.analyze_move(move)
         formed_words: List[Dict[str, Any]] = []
         cross_score = 0
 
-        for idx, positions in enumerate(words):
-            text = "".join(
-                [game._tile_letter_at(position, placement_by_pos) or "" for position in positions]  # pylint: disable=protected-access
-            )
-            score = game._score_word_positions(positions, placement_by_pos)  # pylint: disable=protected-access
+        for idx, word in enumerate(analysis.formed_words):
+            text = word.text
+            score = word.score
             formed_words.append({"text": text, "score": score})
             if idx > 0:
                 cross_score += score
@@ -176,9 +166,9 @@ class ActionEncoder:
         return EncodedAction(
             schema_version=ENCODER_SCHEMA_VERSION,
             placements=placements,
-            axis=axis_name,
+            axis=analysis.direction,
             tiles_used=len(move.placements),
-            immediate_score=game.score_move(move),
+            immediate_score=analysis.total_score,
             leave_letters=leave_letters,
             leave_size=len(leave_letters),
             leave_vowels=leave_vowels,

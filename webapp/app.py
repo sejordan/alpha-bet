@@ -69,6 +69,10 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("ALPHABET_SECRET_KEY", "dev-secret-key")
 
 
+def create_app() -> Flask:
+    return app
+
+
 @dataclass
 class PlayState:
     game: Game
@@ -251,13 +255,6 @@ def _setup_companion_game(state: CompanionState) -> Game:
     return game
 
 
-def _placement_map(move: Move) -> Dict[Tuple[int, int], Placement]:
-    return {
-        (placement.location.position.row, placement.location.position.col): placement
-        for placement in move.placements
-    }
-
-
 def _leave_for_move(game: Game, move: Move) -> str:
     rack = [tile.letter if not tile.wildcard else "?" for tile in game.active_player.tiles]
     for placement in move.placements:
@@ -279,46 +276,16 @@ def _leave_quality(letters: str) -> float:
 
 
 def _move_summary(game: Game, move: Move) -> Dict[str, Any]:
-    score = game.score_move(move)
-    placements = sorted(
-        [
-            (
-                placement.location.position.row,
-                placement.location.position.col,
-                placement.tile.letter,
-                placement.tile.wildcard,
-            )
-            for placement in move.placements
-        ]
-    )
-    axis = game._infer_move_axis(move.placements)  # pylint: disable=protected-access
-    direction = axis.value if axis is not None else "horizontal"
-    placement_by_pos = _placement_map(move)
-    words = (
-        game._words_formed_positions(placement_by_pos, axis) if axis is not None else []
-    )  # pylint: disable=protected-access
-    word_text = ""
+    analysis = game.analyze_move(move)
     formed_words: List[Dict[str, Any]] = []
-    if len(words) > 0:
-        word_text = "".join(
-            [game._tile_letter_at(position, placement_by_pos) or "" for position in words[0]]  # pylint: disable=protected-access
-        )
-        for positions in words:
-            text = "".join(
-                [game._tile_letter_at(position, placement_by_pos) or "" for position in positions]  # pylint: disable=protected-access
-            )
-            formed_words.append(
-                {
-                    "text": text,
-                    "score": game._score_word_positions(positions, placement_by_pos),  # pylint: disable=protected-access
-                }
-            )
+    for word in analysis.formed_words:
+        formed_words.append({"text": word.text, "score": word.score})
     leave = _leave_for_move(game, move)
     return {
-        "score": score,
-        "direction": direction,
-        "word": word_text,
-        "placements": placements,
+        "score": analysis.total_score,
+        "direction": analysis.direction,
+        "word": analysis.word,
+        "placements": analysis.placements,
         "leave": leave,
         "leave_quality": _leave_quality(leave),
         "formed_words": formed_words,
@@ -459,38 +426,6 @@ def _build_move_from_word(
             placements.append(Placement(game.board.at(cursor), game.bag.build_tile(letter)))
         cursor = cursor.next(axis)
     return Move(placements), ""
-
-
-def _explain_illegal_move(game: Game, move: Move) -> str:
-    placements = move.placements
-    if len(placements) == 0:
-        return "Move has no placements."
-
-    placement_by_pos: Dict[Tuple[int, int], Placement] = {}
-    for placement in placements:
-        position = placement.location.position
-        key = (position.row, position.col)
-        if not game.board.is_in_bounds(position):
-            return "Move places a tile out of bounds."
-        if game.board.at(position).tile is not None:
-            return "Move places onto an occupied square."
-        if key in placement_by_pos:
-            return "Move has duplicate placement coordinates."
-        placement_by_pos[key] = placement
-
-    axis = game._infer_move_axis(placements)  # pylint: disable=protected-access
-    if axis is None:
-        return "Move must be in one row or one column."
-    if not game._is_contiguous_on_axis(placement_by_pos, axis):  # pylint: disable=protected-access
-        return "Move is not contiguous."
-    is_opening = game.round == 1 and game.turn == 1
-    if is_opening and not game._move_crosses_center(placement_by_pos):  # pylint: disable=protected-access
-        return "Opening move must cross the center."
-    if (not is_opening) and (not game._touches_existing_graph(placement_by_pos)):  # pylint: disable=protected-access
-        return "Move must touch existing tiles."
-    if not game._all_words_valid(placement_by_pos, axis):  # pylint: disable=protected-access
-        return "Move creates at least one invalid word."
-    return "Move is illegal."
 
 
 def _apply_companion_move(
@@ -798,7 +733,7 @@ def companion() -> ResponseReturnValue:
                 if move is None:
                     raise ValueError(build_err)
                 if not game.is_legal(move):
-                    raise ValueError(_explain_illegal_move(game, move))
+                    raise ValueError(game.explain_illegal_move(move))
                 preview = _apply_companion_move(state, actor, move, word)
             elif action == "shorthand":
                 actor, row, col, direction, word = _parse_shorthand_move(request.form.get("shorthand", ""))
@@ -809,7 +744,7 @@ def companion() -> ResponseReturnValue:
                 if move is None:
                     raise ValueError(build_error)
                 if not game.is_legal(move):
-                    raise ValueError(_explain_illegal_move(game, move))
+                    raise ValueError(game.explain_illegal_move(move))
                 preview = _apply_companion_move(state, actor, move, word)
             elif action in ("preview_move", "apply_move"):
                 actor = request.form.get("actor", state.turn)
@@ -827,7 +762,7 @@ def companion() -> ResponseReturnValue:
                     raise ValueError(build_error)
                 legal = game.is_legal(move)
                 if (not legal) and (not allow_illegal):
-                    raise ValueError(_explain_illegal_move(game, move))
+                    raise ValueError(game.explain_illegal_move(move))
                 if action == "preview_move":
                     preview = _move_summary(game, move)
                     preview["actor"] = actor
@@ -1009,7 +944,7 @@ def play_action() -> ResponseReturnValue:
             action = PassMove()
 
         if isinstance(action, Move) and not game.is_legal(action):
-            raise ValueError(_explain_illegal_move(game, action))
+            raise ValueError(game.explain_illegal_move(action))
 
         if isinstance(action, Move):
             top_moves = _sorted_suggestions(game, limit=5, engine=PLAY_STATE.engine)
@@ -1044,4 +979,4 @@ def play_action() -> ResponseReturnValue:
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    create_app().run(host="127.0.0.1", port=5000, debug=True)

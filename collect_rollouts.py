@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import List
 
 from alphabet.engine import GameEngine
 from alphabet.rollout import run_rollouts
@@ -10,7 +11,7 @@ from alphabet.simulation import SimulationConfig, load_dictionary
 from alphabet.strategy_factory import build_strategy
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Collect RL rollouts into JSONL transitions.")
     parser.add_argument("--episodes", type=int, default=100)
     parser.add_argument("--seed-start", type=int, default=1)
@@ -29,11 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--a-epsilon", type=float, default=0.0)
     parser.add_argument("--b-model", type=str, default="")
     parser.add_argument("--b-epsilon", type=float, default=0.0)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
     dictionary = load_dictionary(args.dictionary)
     config = SimulationConfig(dictionary_path=args.dictionary, max_rounds=args.max_rounds)
 

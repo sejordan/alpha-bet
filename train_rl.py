@@ -10,10 +10,11 @@ from typing import Dict, List
 from alphabet.engine import GameEngine
 from alphabet.move import Move
 from alphabet.rl import FEATURE_KEYS, RLLinearStrategy, LinearPolicyModel, margin_reward
-from alphabet.simulation import SimulationConfig, build_game, load_dictionary, set_seed
+from alphabet.sim_runner import run_episode
+from alphabet.simulation import SimulationConfig, load_dictionary, set_seed
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train RL linear strategy via self-play.")
     parser.add_argument("--episodes", type=int, default=200, help="Number of self-play games.")
     parser.add_argument("--alpha", type=float, default=0.01, help="Learning rate.")
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         default="runs/train/latest",
         help="Where episodic metrics/checkpoints are written.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _safe_value(value: float) -> float:
@@ -68,34 +69,15 @@ def train_episode(
     gamma: float,
     seed: int,
 ) -> Dict[str, float]:
-    set_seed(seed)
-    game = build_game(config=config, dictionary=dictionary)
-    game.start()
-    if not game.next():
-        return {
-            "reward_a": 0.0,
-            "reward_b": 0.0,
-            "score_a": 0.0,
-            "score_b": 0.0,
-            "moves": 0.0,
-            "avg_entropy": 0.0,
-            "avg_td_error": 0.0,
-        }
-
     samples_a: List[Dict[str, float]] = []
     samples_b: List[Dict[str, float]] = []
     policy_entropies: List[float] = []
     td_errors: List[float] = []
 
-    while True:
-        player = game.active_player
-        candidates = engine.all_valid_moves_codex(game, player)
-
+    def before_action(game, player, move_engine, candidates, action) -> None:
         if candidates:
             scores = [strategy.model.score(strategy.move_features(game, player, c)) for c in candidates]
             policy_entropies.append(_policy_entropy(scores))
-
-        action = strategy.select_action(engine=engine, game=game, player=player, candidates=candidates)
 
         if isinstance(action, Move):
             features = strategy.move_features(game, player, action)
@@ -104,9 +86,15 @@ def train_episode(
             else:
                 samples_b.append(features)
 
-        game.apply_action(action)
-        if not game.next():
-            break
+    episode = run_episode(
+        config=config,
+        dictionary=dictionary,
+        engine_a=engine,
+        engine_b=engine,
+        seed=seed,
+        before_action=before_action,
+    )
+    game = episode.game
 
     reward_a = margin_reward(game)
     reward_b = -reward_a
@@ -139,8 +127,8 @@ def train_episode(
     }
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: List[str] | None = None) -> None:
+    args = parse_args(argv)
 
     run_dir = Path(args.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)

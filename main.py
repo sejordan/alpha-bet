@@ -12,7 +12,7 @@ from alphabet.move import Move, ExchangeMove, PassMove
 import numpy as np
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run an alpha-bet game simulation.")
     parser.add_argument("--quiet", action="store_true", help="Suppress board rendering and per-turn detail output.")
     parser.add_argument("--seed", type=int, default=None, help="Set RNG seed for deterministic runs.")
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="Exploration rate for RL strategy.",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _build_engine(args: argparse.Namespace) -> GameEngine:
@@ -50,8 +50,8 @@ def _build_engine(args: argparse.Namespace) -> GameEngine:
     return GameEngine(strategy=result.strategy)
 
 
-def main():
-    args = parse_args()
+def main(argv: List[str] | None = None):
+    args = parse_args(argv)
 
     if args.seed is not None:
         random.seed(args.seed)
