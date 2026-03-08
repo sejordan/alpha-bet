@@ -5,6 +5,7 @@ from alphabet.engine import GameEngine
 from alphabet.game import Game
 from alphabet.move import Move, Placement, ExchangeMove, PassMove
 from alphabet.position import Position
+from alphabet.strategy import ActionStrategy
 from alphabet.wordsmith import Dictionary
 
 
@@ -373,3 +374,44 @@ def test_select_action_prefers_higher_scoring_move():
     assert isinstance(action, Move)
     played_letters = {placement.tile.letter for placement in action.placements}
     assert "z" in played_letters
+
+
+class AlwaysPassStrategy(ActionStrategy):
+    def select_action(self, engine, game, player, candidates):
+        return PassMove()
+
+
+def test_engine_accepts_pluggable_strategy_adapter():
+    game = _make_game(["at"])
+    game.round = 1
+    game.turn = 1
+    _set_player_tiles(game, ["a", "t"])
+
+    engine = GameEngine(strategy=AlwaysPassStrategy())
+    action = engine.select_action(game, game.active_player, verbose=False)
+    assert isinstance(action, PassMove)
+
+
+def test_is_over_when_bag_empty_and_both_players_have_no_moves():
+    game = _make_game([])
+    game.round = 1
+    game.turn = 1
+    game.players.a.tiles = [_tile(game, "a")]
+    game.players.b.tiles = [_tile(game, "b")]
+    for letter in game.bag.counts:
+        game.bag.counts[letter] = 0
+    game.bag.total_tiles = 0
+
+    assert game.is_over
+
+
+def test_not_over_when_bag_has_tiles_even_if_dictionary_empty():
+    game = _make_game([])
+    game.round = 1
+    game.turn = 1
+    game.players.a.tiles = [_tile(game, "a")]
+    game.players.b.tiles = [_tile(game, "b")]
+    # bag has tiles, so exchange remains possible and game should not be forced over
+    assert game.bag.total_tiles > 0
+
+    assert not game.is_over

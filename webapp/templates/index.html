@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>alpha-bet</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>alpha-bet</h1>
+      <p>Choose a mode.</p>
+      <div class="actions">
+        <a class="btn" href="{{ url_for('companion') }}">Companion Mode</a>
+        <a class="btn" href="{{ url_for('play') }}">Play vs AI</a>
+      </div>
+    </main>
+  </body>
+</html>

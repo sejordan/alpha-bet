@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Play vs AI</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Play vs AI</h1>
+
+      <form class="inline" method="post" action="{{ url_for('play_new') }}">
+        <label for="seed">Seed</label>
+        <input id="seed" name="seed" placeholder="optional" />
+        <button type="submit" class="btn">Start New Game</button>
+        <a class="btn ghost" href="{{ url_for('index') }}">Back</a>
+      </form>
+
+      {% if not ready %}
+      <p>Start a game to begin.</p>
+      {% else %}
+      {% if message %}
+      <p class="error">{{ message }}</p>
+      {% endif %}
+
+      <p>Round {{ game.round }} | Turn {{ game.turn }} | Active: {{ game.active_player.name }}</p>
+      <p>Score — You: {{ game.players.a.score }} | AI: {{ game.players.b.score }}</p>
+
+      <h2>Your Rack</h2>
+      <div id="rack" class="rack">
+        {% for tile in rack %}
+        <div
+          class="rack-tile"
+          draggable="true"
+          data-rack-id="{{ tile.id }}"
+          data-token="{{ tile.token }}"
+          title="{{ tile.token }}"
+        >
+          {{ tile.label }}
+        </div>
+        {% endfor %}
+      </div>
+
+      <h2>Board</h2>
+      <form id="manual-form" method="post" action="{{ url_for('play_action') }}">
+        <input type="hidden" name="manual_payload" id="manual_payload" />
+        <table class="board play-board">
+          {% for row in board_view %}
+          <tr>
+            {% for cell in row %}
+            {% set mod = cell.modifier.lower() %}
+            <td
+              class="showcell board-cell mod-{{ mod }} {% if cell.occupied %}occupied{% endif %}"
+              data-row="{{ cell.row }}"
+              data-col="{{ cell.col }}"
+              data-occupied="{{ '1' if cell.occupied else '0' }}"
+            >
+              {% if cell.occupied %}
+                {{ cell.letter }}{% if cell.wildcard %}*{% endif %}
+              {% else %}
+                {{ cell.modifier }}
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </table>
+        <div class="actions">
+          <button class="btn" type="submit">Play Manual Move</button>
+          <button class="btn ghost" type="button" id="clear-manual">Clear Placements</button>
+          <button class="btn ghost" type="submit" formmethod="post">Pass Turn</button>
+        </div>
+      </form>
+
+      <h2>Suggested Moves</h2>
+      <table class="suggestions">
+        <tr>
+          <th>Word</th>
+          <th>Direction</th>
+          <th>Score</th>
+          <th>Placements</th>
+          <th>Action</th>
+        </tr>
+        {% for i in range(suggestions|length) %}
+        {% set move = suggestions[i] %}
+        <tr>
+          <td>{{ move.word or "-" }}</td>
+          <td>{{ move.direction }}</td>
+          <td>{{ move.score }}</td>
+          <td>
+            {% for p in move.placements %}
+              ({{ p[0] }},{{ p[1] }})={{ p[2] }}{% if p[3] %}*{% endif %}
+            {% endfor %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('play_action') }}">
+              <input type="hidden" name="move_payload" value="{{ payloads[i] }}" />
+              <button class="btn" type="submit">Play Suggested</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% endif %}
+    </main>
+
+    <script>
+      const placements = new Map(); // key "r,c" -> {row,col,token,assigned,rackId}
+      const rackEl = document.getElementById("rack");
+      const payloadEl = document.getElementById("manual_payload");
+
+      function key(row, col) {
+        return `${row},${col}`;
+      }
+
+      function renderPayload() {
+        if (!payloadEl) return;
+        const out = [];
+        for (const value of placements.values()) out.push(value);
+        payloadEl.value = JSON.stringify(out);
+      }
+
+      function resetCellVisual(cell) {
+        if (cell.dataset.occupied === "1") return;
+        cell.classList.remove("dropped");
+        cell.textContent = cell.className.includes("mod-") ? cell.textContent : cell.dataset.modifier || "";
+      }
+
+      function restoreRackTile(rackId, token) {
+        if (!rackEl) return;
+        const existing = rackEl.querySelector(`[data-rack-id="${rackId}"]`);
+        if (existing) return;
+        const tile = document.createElement("div");
+        tile.className = "rack-tile";
+        tile.draggable = true;
+        tile.dataset.rackId = rackId;
+        tile.dataset.token = token;
+        tile.textContent = token === "?" ? "?" : token.toUpperCase();
+        tile.title = token;
+        wireRackTile(tile);
+        rackEl.appendChild(tile);
+      }
+
+      function wireRackTile(tile) {
+        tile.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", JSON.stringify({
+            rackId: tile.dataset.rackId,
+            token: tile.dataset.token
+          }));
+        });
+      }
+
+      document.querySelectorAll(".rack-tile").forEach(wireRackTile);
+
+      document.querySelectorAll(".board-cell").forEach((cell) => {
+        cell.dataset.modifier = cell.textContent;
+        cell.addEventListener("dragover", (e) => {
+          if (cell.dataset.occupied === "1") return;
+          e.preventDefault();
+        });
+
+        cell.addEventListener("drop", (e) => {
+          if (cell.dataset.occupied === "1") return;
+          e.preventDefault();
+          const data = JSON.parse(e.dataTransfer.getData("text/plain"));
+          const row = parseInt(cell.dataset.row, 10);
+          const col = parseInt(cell.dataset.col, 10);
+          const k = key(row, col);
+
+          let assigned = "";
+          if (data.token === "?") {
+            assigned = prompt("Assign blank tile letter (a-z):", "e") || "";
+            assigned = assigned.trim().toLowerCase();
+            if (!/^[a-z]$/.test(assigned)) return;
+          }
+
+          // if existing placement in cell, restore prior tile to rack
+          if (placements.has(k)) {
+            const prev = placements.get(k);
+            restoreRackTile(prev.rackId, prev.token);
+          }
+
+          placements.set(k, {
+            row, col,
+            token: data.token,
+            assigned,
+            rackId: data.rackId
+          });
+
+          const rackTile = document.querySelector(`[data-rack-id="${data.rackId}"]`);
+          if (rackTile) rackTile.remove();
+
+          cell.classList.add("dropped");
+          cell.textContent = data.token === "?" ? `${assigned.toUpperCase()}*` : data.token.toUpperCase();
+          renderPayload();
+        });
+
+        cell.addEventListener("click", () => {
+          const row = parseInt(cell.dataset.row, 10);
+          const col = parseInt(cell.dataset.col, 10);
+          const k = key(row, col);
+          if (!placements.has(k)) return;
+          const prev = placements.get(k);
+          placements.delete(k);
+          restoreRackTile(prev.rackId, prev.token);
+          cell.classList.remove("dropped");
+          cell.textContent = cell.dataset.modifier || "";
+          renderPayload();
+        });
+      });
+
+      const clearBtn = document.getElementById("clear-manual");
+      if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+          for (const value of placements.values()) {
+            restoreRackTile(value.rackId, value.token);
+          }
+          placements.clear();
+          document.querySelectorAll(".board-cell").forEach((cell) => {
+            if (cell.dataset.occupied === "1") return;
+            cell.classList.remove("dropped");
+            cell.textContent = cell.dataset.modifier || "";
+          });
+          renderPayload();
+        });
+      }
+    </script>
+  </body>
+</html>

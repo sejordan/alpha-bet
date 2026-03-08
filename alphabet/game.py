@@ -43,6 +43,10 @@ class Game:
         # Natural tile-out ending requires an empty bag.
         if self.bag.total_tiles == 0 and (len(self.players.a.tiles) == 0 or len(self.players.b.tiles) == 0):
             return True
+
+        # If the bag is empty and neither player can form any legal move, game is over.
+        if self.bag.total_tiles == 0 and self._both_players_blocked():
+            return True
         
         return False
 
@@ -426,6 +430,28 @@ class Game:
             return None
 
         return tile.letter
+
+    def _both_players_blocked(self) -> bool:
+        return (not self._player_has_legal_word_move(self.players.a)) and (
+            not self._player_has_legal_word_move(self.players.b)
+        )
+
+    def _player_has_legal_word_move(self, player: Player) -> bool:
+        """
+        Check if the provided player has at least one legal word move in the current
+        board state. This temporarily flips active-player parity because legality
+        validation is tied to `self.active_player`.
+        """
+        from alphabet.engine import GameEngine  # local import to avoid circular import
+
+        previous_turn = self.turn
+        try:
+            # Active player is A on odd turns and B on even turns.
+            self.turn = 1 if player == self.players.a else 2
+            engine = GameEngine()
+            return len(engine.all_valid_moves_codex(self, player)) > 0
+        finally:
+            self.turn = previous_turn
 
     def score(self, tiles: List[Tile]) -> int:
         return self.score_word("".join([Tile.WILDCARD if tile.wildcard else tile.letter for tile in tiles]))

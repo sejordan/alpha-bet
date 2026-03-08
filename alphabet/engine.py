@@ -1,12 +1,15 @@
 from typing import List, Dict
 
-from alphabet.move import Move, Placement, ExchangeMove, PassMove
 from alphabet.game import Game, Tile, Player
+from alphabet.move import Move, Placement, ExchangeMove, PassMove
 from alphabet.position import Position, Axis
+from alphabet.strategy import ActionStrategy, GreedyImmediateScoreStrategy
 from alphabet import wordsmith
 
 
 class GameEngine:
+    def __init__(self, strategy: ActionStrategy | None = None) -> None:
+        self.strategy = strategy if strategy is not None else GreedyImmediateScoreStrategy()
 
     def all_valid_moves_codex(self, game: Game, player: Player) -> List[Move]:
         """
@@ -382,47 +385,12 @@ class GameEngine:
         if verbose:
             print("Found", len(candidates), 'possible moves')
 
-        if len(candidates) > 0:
-            # Strategy: maximize immediate score, then prefer using more tiles,
-            # then stable tie-breaker by placement coordinates.
-            best_score = None
-            best_move = None
-            best_signature = None
-
-            for candidate in candidates:
-                score = game.score_move(candidate)
-                signature = self._move_signature_codex(candidate)
-                # deterministic tie-break by signature ordering
-                tie_key = (score, len(candidate.placements), tuple(signature))
-
-                if best_move is None:
-                    best_move = candidate
-                    best_score = score
-                    best_signature = tie_key
-                    continue
-
-                assert best_score is not None and best_signature is not None
-                if score > best_score:
-                    best_move = candidate
-                    best_score = score
-                    best_signature = tie_key
-                elif score == best_score:
-                    if len(candidate.placements) > len(best_move.placements):
-                        best_move = candidate
-                        best_signature = tie_key
-                    elif len(candidate.placements) == len(best_move.placements) and tie_key < best_signature:
-                        best_move = candidate
-                        best_signature = tie_key
-
-            assert best_move is not None
-            return best_move
-
-        # If no moves are available, exchange as many tiles as we can draw.
-        exchange_count = min(len(player.tiles), game.bag.total_tiles)
-        if exchange_count > 0:
-            return ExchangeMove(player.tiles[:exchange_count])
-
-        return PassMove()
+        return self.strategy.select_action(
+            engine=self,
+            game=game,
+            player=player,
+            candidates=candidates,
+        )
 
     def select_move(self, game: Game, player: Player) -> Move | None:
         action = self.select_action(game, player)

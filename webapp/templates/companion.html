@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Companion Mode</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Companion Mode</h1>
+      <p>Lexicon: {{ state.lexicon }}</p>
+      {% if error %}
+      <p class="error">{{ error }}</p>
+      {% endif %}
+
+      <section class="panel">
+        <h2>State</h2>
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="set_lexicon" />
+          <label>Lexicon</label>
+          <select name="lexicon">
+            <option value="classic" {% if state.lexicon == "classic" %}selected{% endif %}>classic</option>
+          </select>
+          <button class="btn" type="submit">Set</button>
+        </form>
+        <p>Score — You: {{ state.my_score }} | Opponent: {{ state.opp_score }} | Turn: {{ state.turn }}</p>
+        <p>Unseen Pool:
+          {% for letter, n in unseen_counts.items() if n > 0 %}
+            {{ letter }}:{{ n }}
+          {% endfor %}
+        </p>
+        <div class="actions">
+          <form method="post">
+            <input type="hidden" name="action" value="undo" />
+            <button class="btn" type="submit">Undo Last</button>
+          </form>
+          <form method="post" onsubmit="return confirm('Reset board and history?');">
+            <input type="hidden" name="action" value="clear_board" />
+            <button class="btn ghost" type="submit">Reset Session</button>
+          </form>
+          <a class="btn ghost" href="{{ url_for('companion_export') }}">Export JSON</a>
+          <a class="btn ghost" href="{{ url_for('index') }}">Back</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Rack and Tracking</h2>
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="set_rack" />
+          <label>Your Rack</label>
+          <input name="rack" value="{{ state.my_rack }}" maxlength="7" placeholder="aeiort?" />
+          <button class="btn" type="submit">Set Rack</button>
+        </form>
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="mark_seen" />
+          <label>Seen Letters</label>
+          <input name="seen_letters" value="{{ state.seen_letters }}" placeholder="letters seen via exchange/challenge" />
+          <button class="btn" type="submit">Set Seen</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Move Entry</h2>
+        <form method="post" class="gridform">
+          <input type="hidden" name="action" value="preview_move" />
+          <label>Actor</label>
+          <select name="actor">
+            <option value="me" {% if state.turn == "me" %}selected{% endif %}>Me</option>
+            <option value="opponent" {% if state.turn == "opponent" %}selected{% endif %}>Opponent</option>
+          </select>
+          <label>Word</label>
+          <input name="word" placeholder="stare" />
+          <label>Row</label>
+          <input id="start_row" name="start_row" type="number" min="0" max="14" />
+          <label>Col</label>
+          <input id="start_col" name="start_col" type="number" min="0" max="14" />
+          <label>Direction</label>
+          <select name="direction">
+            <option value="horizontal">Horizontal</option>
+            <option value="vertical">Vertical</option>
+          </select>
+          <label>Allow Illegal</label>
+          <input type="checkbox" name="allow_illegal" />
+          <label>Manual Score</label>
+          <input name="manual_score" type="number" value="0" />
+          <button class="btn" type="submit">Preview</button>
+        </form>
+
+        <form method="post" class="gridform">
+          <input type="hidden" name="action" value="apply_move" />
+          <label>Actor</label>
+          <select name="actor">
+            <option value="me" {% if state.turn == "me" %}selected{% endif %}>Me</option>
+            <option value="opponent" {% if state.turn == "opponent" %}selected{% endif %}>Opponent</option>
+          </select>
+          <label>Word</label>
+          <input name="word" placeholder="stare" />
+          <label>Row</label>
+          <input name="start_row" type="number" min="0" max="14" />
+          <label>Col</label>
+          <input name="start_col" type="number" min="0" max="14" />
+          <label>Direction</label>
+          <select name="direction">
+            <option value="horizontal">Horizontal</option>
+            <option value="vertical">Vertical</option>
+          </select>
+          <label>Allow Illegal</label>
+          <input type="checkbox" name="allow_illegal" />
+          <label>Manual Score</label>
+          <input name="manual_score" type="number" value="0" />
+          <button class="btn" type="submit">Apply</button>
+        </form>
+
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="shorthand" />
+          <label>Shorthand</label>
+          <input name="shorthand" placeholder="H8 H STARE or opponent H8 H STARE" />
+          <button class="btn" type="submit">Apply Shorthand</button>
+        </form>
+
+        {% if preview %}
+        <p>
+          <strong>Preview:</strong> {{ preview.word or preview.entered_word or "-" }}
+          — {{ preview.score }} pts ({{ preview.direction }})
+          {% if preview.legal is defined and not preview.legal %}[forced/illegal]{% endif %}
+        </p>
+        <p>
+          Words:
+          {% for w in preview.formed_words %}
+            {{ w.text }}({{ w.score }})
+          {% endfor %}
+        </p>
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <h2>Board</h2>
+        <form method="post">
+          <table class="board">
+            {% for row in range(15) %}
+            <tr>
+              {% for col in range(15) %}
+              <td>
+                <input
+                  class="cell pickcell"
+                  data-row="{{ row }}"
+                  data-col="{{ col }}"
+                  name="cell_{{ row }}_{{ col }}"
+                  value="{{ state.board[row][col] }}"
+                  maxlength="1"
+                  title="Uppercase letter indicates blank tile assignment"
+                />
+              </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </table>
+          <div class="actions">
+            <button class="btn" type="submit" name="action" value="set_grid">Apply Board Edits</button>
+            <button class="btn" type="submit" name="action" value="infer_diff">Infer Move From Diff</button>
+          </div>
+        </form>
+        <details>
+          <summary>Import Board Text (15 rows; '.' empty; uppercase=blank)</summary>
+          <form method="post" onsubmit="return confirm('Import board text and overwrite current board?');">
+            <input type="hidden" name="action" value="import_board" />
+            <textarea name="board_text" rows="8">{{ board_text }}</textarea>
+            <button class="btn" type="submit">Import Board</button>
+          </form>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Session JSON</h2>
+        <details>
+          <summary>Import Saved Session</summary>
+          <form method="post" onsubmit="return confirm('Load session JSON and overwrite current state?');">
+            <input type="hidden" name="action" value="import_state" />
+            <textarea id="state_payload" name="state_payload" rows="12">{{ state_payload }}</textarea>
+            <button class="btn" type="submit">Load Session</button>
+          </form>
+        </details>
+      </section>
+
+      <section class="panel">
+        <h2>Suggestions</h2>
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="suggest" />
+          <label>Top N</label>
+          <input type="number" name="limit" value="{{ request.values.get('limit', '30') }}" min="1" max="200" />
+          <label>Min Score</label>
+          <input type="number" name="min_score" value="{{ request.values.get('min_score', '0') }}" min="0" />
+          <label>Sort</label>
+          <select name="sort_by">
+            <option value="score" {% if request.values.get('sort_by','score') == 'score' %}selected{% endif %}>Score</option>
+            <option value="leave" {% if request.values.get('sort_by','score') == 'leave' %}selected{% endif %}>Leave</option>
+          </select>
+          <button class="btn" type="submit">Refresh</button>
+        </form>
+        <table class="suggestions">
+          <tr>
+            <th>Word</th>
+            <th>Dir</th>
+            <th>Score</th>
+            <th>Leave</th>
+            <th>Words</th>
+            <th>Placements</th>
+          </tr>
+          {% for move in suggestions %}
+          <tr>
+            <td>{{ move.word or "-" }}</td>
+            <td>{{ move.direction }}</td>
+            <td>{{ move.score }}</td>
+            <td>{{ move.leave }}</td>
+            <td>{% for w in move.formed_words %}{{ w.text }}({{ w.score }}) {% endfor %}</td>
+            <td>{% for p in move.placements %}({{ p[0] }},{{ p[1] }})={{ p[2] }}{% if p[3] %}*{% endif %} {% endfor %}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2>History</h2>
+        <p>Total moves: {{ state.history|length }} | Avg best-gap (your turns): {{ best_gap }}</p>
+        <form method="post" class="inline">
+          <input type="hidden" name="action" value="jump_turn" />
+          <label>Jump To Turn Index</label>
+          <input type="number" name="turn_index" min="-1" max="{{ state.history|length - 1 }}" value="{{ state.history|length - 1 }}" />
+          <button class="btn" type="submit">Jump</button>
+        </form>
+        <table class="suggestions">
+          <tr>
+            <th>#</th><th>Actor</th><th>Word</th><th>Score</th><th>Dir</th><th>Best Gap</th><th>Flags</th>
+          </tr>
+          {% for i in range(state.history|length) %}
+          {% set h = state.history[i] %}
+          <tr>
+            <td>{{ i + 1 }}</td>
+            <td>{{ h.actor }}</td>
+            <td>{{ h.word or h.entered_word or "-" }}</td>
+            <td>{{ h.score }}</td>
+            <td>{{ h.direction }}</td>
+            <td>{{ h.best_gap if h.best_gap is defined else "-" }}</td>
+            <td>{% if h.forced %}forced{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </section>
+    </main>
+    <script>
+      document.querySelectorAll(".pickcell").forEach((cell) => {
+        cell.addEventListener("focus", () => {
+          const r = document.getElementById("start_row");
+          const c = document.getElementById("start_col");
+          if (r && c) {
+            r.value = cell.dataset.row;
+            c.value = cell.dataset.col;
+          }
+        });
+      });
+
+      const payload = document.getElementById("state_payload");
+      if (payload) {
+        try {
+          localStorage.setItem("alpha_bet_companion_state", payload.value);
+        } catch (e) {}
+      }
+    </script>
+  </body>
+</html>
